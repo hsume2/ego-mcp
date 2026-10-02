@@ -30,6 +30,9 @@ class EgoConfig:
     Environment variables:
         EGO_MCP_EMBEDDING_PROVIDER: "gemini" or "openai" (default: "gemini")
         EGO_MCP_EMBEDDING_MODEL: Model name (default: provider-dependent)
+        EGO_MCP_EMBEDDING_BASE_URL: Base URL of an OpenAI-compatible embeddings
+            server, e.g. "http://192.168.1.20:8080/v1" (openai provider only;
+            default: OpenAI's API)
         GEMINI_API_KEY / OPENAI_API_KEY: API key (required)
         EGO_MCP_DATA_DIR: Data directory (default: ~/.ego-mcp/data)
         EGO_MCP_COMPANION_NAME: Companion name (default: "Master")
@@ -47,6 +50,7 @@ class EgoConfig:
     workspace_dir: Path | None
     timezone: str
     lexical_search_enabled: bool = True
+    embedding_base_url: str | None = None
 
     @classmethod
     def from_env(cls) -> EgoConfig:
@@ -64,9 +68,28 @@ class EgoConfig:
             _DEFAULT_MODELS[provider],
         )
 
+        base_url_raw = os.environ.get("EGO_MCP_EMBEDDING_BASE_URL", "").strip()
+        embedding_base_url = base_url_raw.rstrip("/") or None
+        if embedding_base_url is not None:
+            if provider != "openai":
+                raise ValueError(
+                    "EGO_MCP_EMBEDDING_BASE_URL is only supported with "
+                    "EGO_MCP_EMBEDDING_PROVIDER=openai."
+                )
+            if not embedding_base_url.startswith(("http://", "https://")):
+                raise ValueError(
+                    f"Invalid EGO_MCP_EMBEDDING_BASE_URL '{base_url_raw}'. "
+                    "It must start with http:// or https://."
+                )
+
         api_key_env = _API_KEY_ENV[provider]
         api_key = os.environ.get(api_key_env, "")
         if not api_key:
+            if embedding_base_url is not None:
+                raise ValueError(
+                    f"{api_key_env} is not set. Set it to the bearer token "
+                    f"for {embedding_base_url}."
+                )
             url = _API_KEY_URLS[provider]
             raise ValueError(f"{api_key_env} is not set. Get your API key at: {url}")
 
@@ -100,4 +123,5 @@ class EgoConfig:
             workspace_dir=workspace_dir,
             timezone=timezone,
             lexical_search_enabled=lexical_search_enabled,
+            embedding_base_url=embedding_base_url,
         )

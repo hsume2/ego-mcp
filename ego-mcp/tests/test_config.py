@@ -16,6 +16,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in [
         "EGO_MCP_EMBEDDING_PROVIDER",
         "EGO_MCP_EMBEDDING_MODEL",
+        "EGO_MCP_EMBEDDING_BASE_URL",
         "GEMINI_API_KEY",
         "OPENAI_API_KEY",
         "EGO_MCP_DATA_DIR",
@@ -62,6 +63,51 @@ class TestOpenAIExplicit:
         config = EgoConfig.from_env()
 
         assert config.embedding_model == "text-embedding-3-large"
+
+
+class TestEmbeddingBaseUrl:
+    """OpenAI-compatible self-hosted embedding servers."""
+
+    def test_defaults_to_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("EGO_MCP_EMBEDDING_PROVIDER", "openai")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        config = EgoConfig.from_env()
+
+        assert config.embedding_base_url is None
+
+    def test_custom_base_url_strips_trailing_slash(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("EGO_MCP_EMBEDDING_PROVIDER", "openai")
+        monkeypatch.setenv("OPENAI_API_KEY", "lan-token")
+        monkeypatch.setenv("EGO_MCP_EMBEDDING_MODEL", "bge-m3")
+        monkeypatch.setenv("EGO_MCP_EMBEDDING_BASE_URL", " http://10.0.0.5:8080/v1/ ")
+        config = EgoConfig.from_env()
+
+        assert config.embedding_base_url == "http://10.0.0.5:8080/v1"
+        assert config.embedding_model == "bge-m3"
+        assert config.api_key == "lan-token"
+
+    def test_rejected_with_gemini(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+        monkeypatch.setenv("EGO_MCP_EMBEDDING_BASE_URL", "http://10.0.0.5:8080/v1")
+        with pytest.raises(ValueError, match="only supported with"):
+            EgoConfig.from_env()
+
+    def test_rejects_url_without_scheme(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("EGO_MCP_EMBEDDING_PROVIDER", "openai")
+        monkeypatch.setenv("OPENAI_API_KEY", "lan-token")
+        monkeypatch.setenv("EGO_MCP_EMBEDDING_BASE_URL", "10.0.0.5:8080/v1")
+        with pytest.raises(ValueError, match="must start with http"):
+            EgoConfig.from_env()
+
+    def test_missing_token_mentions_base_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("EGO_MCP_EMBEDDING_PROVIDER", "openai")
+        monkeypatch.setenv("EGO_MCP_EMBEDDING_BASE_URL", "http://10.0.0.5:8080/v1")
+        with pytest.raises(ValueError, match="bearer token for http://10.0.0.5"):
+            EgoConfig.from_env()
 
 
 class TestValidation:

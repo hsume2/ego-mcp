@@ -92,12 +92,21 @@ class GeminiEmbeddingProvider:
         raise last_error  # pragma: no cover
 
 
-class OpenAIEmbeddingProvider:
-    """OpenAI embedding provider using /v1/embeddings endpoint."""
+_OPENAI_BASE_URL = "https://api.openai.com/v1"
 
-    def __init__(self, api_key: str, model: str = "text-embedding-3-small") -> None:
+
+class OpenAIEmbeddingProvider:
+    """OpenAI(-compatible) embedding provider using the /embeddings endpoint."""
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "text-embedding-3-small",
+        base_url: str | None = None,
+    ) -> None:
         self._api_key = api_key
         self._model = model
+        self._base_url = (base_url or _OPENAI_BASE_URL).rstrip("/")
 
     async def close(self) -> None:
         """No-op close hook for compatibility with provider protocol."""
@@ -105,7 +114,7 @@ class OpenAIEmbeddingProvider:
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed texts using OpenAI embeddings endpoint."""
-        url = "https://api.openai.com/v1/embeddings"
+        url = f"{self._base_url}/embeddings"
         headers = {"Authorization": f"Bearer {self._api_key}"}
         payload = {"model": self._model, "input": texts}
 
@@ -149,7 +158,9 @@ def create_embedding_provider(config: EgoConfig) -> EmbeddingProvider:
     if config.embedding_provider == "gemini":
         return GeminiEmbeddingProvider(config.api_key, config.embedding_model)
     elif config.embedding_provider == "openai":
-        return OpenAIEmbeddingProvider(config.api_key, config.embedding_model)
+        return OpenAIEmbeddingProvider(
+            config.api_key, config.embedding_model, config.embedding_base_url
+        )
     else:
         raise ValueError(f"Unknown provider: {config.embedding_provider}")
 

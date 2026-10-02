@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any, cast
 
 import httpx
@@ -235,6 +236,23 @@ class TestOpenAIEmbeddingProvider:
         assert first == [[0.7, 0.8]]
         assert second == [[0.7, 0.8]]
 
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_custom_base_url_sends_bearer_token(self) -> None:
+        route = respx.post("http://10.0.0.5:8080/v1/embeddings").respond(
+            json={"data": [{"index": 0, "embedding": [0.1, 0.2]}]}
+        )
+
+        provider = OpenAIEmbeddingProvider(
+            api_key="lan-token", model="bge-m3", base_url="http://10.0.0.5:8080/v1/"
+        )
+        result = await provider.embed(["hello"])
+
+        assert result == [[0.1, 0.2]]
+        request = route.calls.last.request
+        assert request.headers["authorization"] == "Bearer lan-token"
+        assert json.loads(request.content)["model"] == "bge-m3"
+
 
 # --- Factory ---
 
@@ -254,3 +272,17 @@ class TestFactory:
         config = EgoConfig.from_env()
         provider = create_embedding_provider(config)
         assert isinstance(provider, OpenAIEmbeddingProvider)
+
+    @respx.mock
+    def test_openai_with_base_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("EGO_MCP_EMBEDDING_PROVIDER", "openai")
+        monkeypatch.setenv("OPENAI_API_KEY", "lan-token")
+        monkeypatch.setenv("EGO_MCP_EMBEDDING_BASE_URL", "http://10.0.0.5:8080/v1")
+        route = respx.post("http://10.0.0.5:8080/v1/embeddings").respond(
+            json={"data": [{"index": 0, "embedding": [0.3]}]}
+        )
+
+        provider = create_embedding_provider(EgoConfig.from_env())
+
+        assert asyncio.run(provider.embed(["hi"])) == [[0.3]]
+        assert route.called

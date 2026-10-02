@@ -300,18 +300,19 @@ cd ego-mcp
 cp .env.example .env        # set EGO_MCP_HTTP_TOKEN, embedding server, mounts
 mkdir -p data logs          # owned by EGO_MCP_UID:EGO_MCP_GID (default 1000:1000)
 docker compose up -d --build
-curl http://localhost:8765/healthz   # → ok
+curl http://172.17.0.1:8765/healthz   # → ok
 ```
 
 Then point an MCP client at it, e.g. for Claude Code:
 
 ```bash
-claude mcp add --transport http ego-mcp http://<host>:8765/mcp \
+claude mcp add --transport http ego-mcp http://172.17.0.1:8765/mcp \
   --header "Authorization: Bearer $EGO_MCP_HTTP_TOKEN"
 ```
 
 - Memories persist in `EGO_MCP_DATA_MOUNT` (default `./data`); JSONL logs go to `EGO_MCP_LOG_MOUNT`. Set it to the directory the dashboard ingestor tails (`/tmp` by default) to keep telemetry working.
-- The bearer token is the only protection; the server speaks plain HTTP, so put it behind a TLS reverse proxy if traffic leaves a trusted LAN. Set `EGO_MCP_HTTP_BIND=127.0.0.1` to publish locally only.
+- The port is published only on the Docker bridge gateway (`EGO_MCP_HTTP_BIND`, default `172.17.0.1`), so it is reachable from the host and from containers but not from the LAN. Containers on the same compose network can use `http://ego-mcp:8765/mcp`. Set `EGO_MCP_HTTP_BIND=0.0.0.0` to expose it on the LAN, or `127.0.0.1` for host-only.
+- The bearer token is the only protection; the server speaks plain HTTP, so put it behind a TLS reverse proxy if traffic leaves a trusted network.
 - The nightly derived batch can run in the same image: `docker compose run --rm ego-mcp python -m ego_mcp.derived`.
 
 ## Derived Layer (optional nightly batch)

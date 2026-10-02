@@ -4,7 +4,11 @@
 #   mkdir -p data logs     # must exist and be owned by EGO_MCP_UID:EGO_MCP_GID
 #   docker compose up -d --build
 #
-# Clients connect to http://<host>:${EGO_MCP_HTTP_PORT}/mcp with
+# The port is published only on the Docker bridge gateway (docker0,
+# 172.17.0.1 by default), so it is reachable from this host and from
+# containers, but not from the LAN. Clients connect to
+# http://172.17.0.1:${EGO_MCP_HTTP_PORT}/mcp (or http://ego-mcp:8765/mcp from
+# a container on the same compose network) with
 # "Authorization: Bearer ${EGO_MCP_HTTP_TOKEN}".
 services:
   ego-mcp:
@@ -14,6 +18,7 @@ services:
     user: "${EGO_MCP_UID:-1000}:${EGO_MCP_GID:-1000}"
     environment:
       EGO_MCP_TRANSPORT: streamable-http
+      # All interfaces *inside* the container; host exposure is set by ports.
       EGO_MCP_HTTP_HOST: 0.0.0.0
       EGO_MCP_HTTP_PORT: 8765
       EGO_MCP_HTTP_PATH: ${EGO_MCP_HTTP_PATH:-/mcp}
@@ -31,4 +36,4 @@ services:
       # Point at the directory the dashboard ingestor tails (it defaults to /tmp).
       - ${EGO_MCP_LOG_MOUNT:-./logs}:/logs
     ports:
-      - "${EGO_MCP_HTTP_BIND:-0.0.0.0}:${EGO_MCP_HTTP_PORT:-8765}:8765"
+      - "${EGO_MCP_HTTP_BIND:-172.17.0.1}:${EGO_MCP_HTTP_PORT:-8765}:8765"

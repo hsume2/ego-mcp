@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any, cast
@@ -33,6 +34,7 @@ from ego_mcp.interoception import get_body_state
 from ego_mcp.memory import MemoryStore, calculate_time_decay
 from ego_mcp.migrations import run_migrations
 from ego_mcp.notion import NotionStore
+from ego_mcp.transport import TRANSPORT_HTTP, TransportSettings, serve_http
 from ego_mcp.types import Memory
 from ego_mcp.workspace_sync import WorkspaceMemorySync
 
@@ -351,9 +353,25 @@ async def _completion_log_context(
     return extra
 
 
+# Handlers keep per-tool state in module globals and do read-modify-write on
+# JSON stores, so concurrent calls (several HTTP clients, or pipelined stdio
+# requests) must not interleave. main() installs the lock on its event loop.
+_tool_call_lock: asyncio.Lock | None = None
+
+
 @server.call_tool()  # type: ignore[untyped-decorator]
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-    """Dispatch tool calls."""
+    """Dispatch tool calls, one at a time."""
+    lock = _tool_call_lock
+    if lock is None:
+        return await _call_tool_unlocked(name, arguments)
+    async with lock:
+        return await _call_tool_unlocked(name, arguments)
+
+
+async def _call_tool_unlocked(
+    name: str, arguments: dict[str, Any]
+) -> list[TextContent]:
     reset_tool_metadata()
     safe_args = _sanitize_tool_args_for_logging(name, arguments)
     log_context = _tool_log_context()
@@ -561,9 +579,22 @@ def init_server(config: EgoConfig | None = None) -> None:
 
 
 async def main() -> None:
-    """Start the ego-mcp server."""
+    """Start the ego-mcp server on the transport chosen by EGO_MCP_TRANSPORT."""
+    global _tool_call_lock
+
+    settings = TransportSettings.from_env()
     print("Starting ego-mcp server...")
     init_server()
+    _tool_call_lock = asyncio.Lock()
+
+    if settings.transport == TRANSPORT_HTTP:
+        logger.info(
+            "Serving MCP over Streamable HTTP",
+            extra={"host": settings.host, "port": settings.port, "path": settings.path},
+        )
+        await serve_http(server, settings)
+        return
+
     async with stdio_server() as (read_stream, write_stream):
         initialization_options = server.create_initialization_options()
         await server.run(read_stream, write_stream, initialization_options)

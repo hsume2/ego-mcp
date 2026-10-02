@@ -38,6 +38,11 @@ export GEMINI_API_KEY="your-gemini-api-key"
 # OR
 export EGO_MCP_EMBEDDING_PROVIDER="openai"
 export OPENAI_API_KEY="your-openai-api-key"
+# OR a self-hosted OpenAI-compatible server (Ollama, vLLM, TEI, LM Studio, ...)
+export EGO_MCP_EMBEDDING_PROVIDER="openai"
+export EGO_MCP_EMBEDDING_BASE_URL="http://192.168.1.20:8080/v1"
+export EGO_MCP_EMBEDDING_MODEL="bge-m3"
+export OPENAI_API_KEY="your-bearer-token"
 # Optional: enable OpenClaw workspace Markdown sync
 export EGO_MCP_WORKSPACE_DIR="/path/to/openclaw-workspace"
 ```
@@ -268,10 +273,46 @@ References:
 | `EGO_MCP_EMBEDDING_PROVIDER` | `gemini` | `gemini` or `openai` |
 | `EGO_MCP_EMBEDDING_MODEL` | Provider-dependent | Embedding model name |
 | `GEMINI_API_KEY` | — | Required if provider is `gemini` |
-| `OPENAI_API_KEY` | — | Required if provider is `openai` |
+| `OPENAI_API_KEY` | — | Required if provider is `openai` (bearer token when using a custom base URL) |
+| `EGO_MCP_EMBEDDING_BASE_URL` | OpenAI API | `openai` provider only: base URL of an OpenAI-compatible `/embeddings` server (e.g. `http://192.168.1.20:8080/v1` for a self-hosted `bge-m3`) |
 | `EGO_MCP_DATA_DIR` | `~/.ego-mcp/data` | Data storage directory |
 | `EGO_MCP_COMPANION_NAME` | `Master` | Name used in scaffolding templates |
 | `EGO_MCP_WORKSPACE_DIR` | — | OpenClaw workspace root for Markdown sync (`memory/YYYY-MM-DD.md`, `MEMORY.md`, `memory/inner-monologue-latest.md`) |
+
+### Transport (stdio or HTTP)
+
+| Variable | Default | Description |
+|---|---|---|
+| `EGO_MCP_TRANSPORT` | `stdio` | `stdio` (client spawns the server) or `streamable-http` (long-lived service) |
+| `EGO_MCP_HTTP_HOST` | `127.0.0.1` | Bind address for HTTP (`0.0.0.0` inside Docker) |
+| `EGO_MCP_HTTP_PORT` | `8765` | Bind port for HTTP |
+| `EGO_MCP_HTTP_PATH` | `/mcp` | MCP endpoint path |
+| `EGO_MCP_HTTP_TOKEN` | — | Required for HTTP: clients must send `Authorization: Bearer <token>` |
+
+`GET /healthz` is the only unauthenticated route. Tool calls are serialized, so several clients can share one server safely — but run only one server per data directory.
+
+## Docker / Docker Compose
+
+`ego-mcp/Dockerfile` and `ego-mcp/docker-compose.yml` run the server over Streamable HTTP:
+
+```bash
+cd ego-mcp
+cp .env.example .env        # set EGO_MCP_HTTP_TOKEN, embedding server, mounts
+mkdir -p data logs          # owned by EGO_MCP_UID:EGO_MCP_GID (default 1000:1000)
+docker compose up -d --build
+curl http://localhost:8765/healthz   # → ok
+```
+
+Then point an MCP client at it, e.g. for Claude Code:
+
+```bash
+claude mcp add --transport http ego-mcp http://<host>:8765/mcp \
+  --header "Authorization: Bearer $EGO_MCP_HTTP_TOKEN"
+```
+
+- Memories persist in `EGO_MCP_DATA_MOUNT` (default `./data`); JSONL logs go to `EGO_MCP_LOG_MOUNT`. Set it to the directory the dashboard ingestor tails (`/tmp` by default) to keep telemetry working.
+- The bearer token is the only protection; the server speaks plain HTTP, so put it behind a TLS reverse proxy if traffic leaves a trusted LAN. Set `EGO_MCP_HTTP_BIND=127.0.0.1` to publish locally only.
+- The nightly derived batch can run in the same image: `docker compose run --rm ego-mcp python -m ego_mcp.derived`.
 
 ## Derived Layer (optional nightly batch)
 

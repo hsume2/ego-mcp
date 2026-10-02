@@ -37,3 +37,8 @@ __pycache__/
 /.codex-review
 /docs
 .codex-review/
+
+# ego-mcp docker compose
+ego-mcp/.env
+ego-mcp/data/
+ego-mcp/logs/

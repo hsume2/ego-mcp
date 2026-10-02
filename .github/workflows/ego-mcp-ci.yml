@@ -130,3 +130,17 @@ jobs:
 
       - name: Validate compose file
         run: docker compose config
+
+
+  ego-mcp-docker-compose-validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ego-mcp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate compose file
+        run: EGO_MCP_HTTP_TOKEN=ci-placeholder docker compose config

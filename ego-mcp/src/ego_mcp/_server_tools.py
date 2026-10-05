@@ -227,7 +227,10 @@ BACKEND_TOOLS: list[Tool] = [
     ),
     Tool(
         name="update_relationship",
-        description="Update a relationship.",
+        description=(
+            "Update a relationship. Text list fields (known_facts, topics, "
+            "aliases) gain or lose items; others are overwritten."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -240,7 +243,8 @@ BACKEND_TOOLS: list[Tool] = [
                         "topics/personality work; `intensity` belongs to remember()."
                     ),
                 },
-                "value": {},
+                "value": {"description": "List fields: a string or list of strings."},
+                "mode": {"type": "string", "enum": ["add", "remove"]},
             },
             "required": ["person", "field", "value"],
         },

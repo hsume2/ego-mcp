@@ -43,7 +43,7 @@ from ego_mcp.preciousness import (
     PRECIOUS_INTENSITY_MIN,
     is_precious,
 )
-from ego_mcp.relationship import RelationshipStore
+from ego_mcp.relationship import TEXT_LIST_FIELDS, RelationshipStore
 from ego_mcp.ripening import feed_ripening_questions
 from ego_mcp.scaffolds import (
     SCAFFOLD_CURATE_NOTIONS,
@@ -570,18 +570,95 @@ async def _handle_link_memories(memory: MemoryStore, args: dict[str, Any]) -> st
         return f"Link already exists or memories not found: {source_id} ↔ {target_id}"
 
 
+_RELATIONSHIP_TYPE_WORDS: dict[str, str] = {
+    "name": "text",
+    "relation_kind": "text",
+    "first_interaction": "text",
+    "last_interaction": "text",
+    "trust_level": "a number from 0 to 1",
+    "total_interactions": "a number",
+    "communication_style": "an object of tone -> weight",
+    "emotional_baseline": "an object of tone -> weight",
+    "inferred_personality": "an object of trait -> value",
+    "shared_episode_ids": "a list of episode ids",
+    "recent_mood_trajectory": "a list of mood entries",
+}
+
+
+def _coerce_text_items(value: Any) -> list[str] | None:
+    """Turn an update_relationship value into list items, or None if unusable.
+
+    Accepts one string, a list of strings, or a string holding a JSON list of
+    strings (some clients stringify arrays). Blank items are dropped.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if not text.startswith(("[", "{")):
+            return [text] if text else []
+        try:
+            value = json.loads(text)
+        except json.JSONDecodeError:
+            return [text]
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return [item.strip() for item in value if item.strip()]
+    return None
+
+
+def _update_relationship_text_list(
+    store: RelationshipStore,
+    person: str,
+    original_field: str,
+    field_name: str,
+    value: Any,
+    mode: str,
+) -> str:
+    items = _coerce_text_items(value)
+    if items is None:
+        return (
+            f"'{original_field}' takes text: one item as a string, "
+            "or several as a list of strings."
+        )
+    if not items:
+        return f"Nothing to {mode} — the value for '{original_field}' was empty."
+    if mode == "remove":
+        removed, missing = store.remove_list_items(person, field_name, items)
+        remaining = len(getattr(store.get(person), field_name))
+        parts = [f"Removed {len(removed)} from {person}.{field_name} ({remaining} left)."]
+        if missing:
+            parts.append("Not found: " + "; ".join(missing))
+        return "\n".join(parts)
+    added, already = store.add_list_items(person, field_name, items)
+    total = len(getattr(store.get(person), field_name))
+    parts = [f"Added {len(added)} to {person}.{field_name} ({total} total)."]
+    if already:
+        parts.append("Already there: " + "; ".join(already))
+    return "\n".join(parts)
+
+
 def _handle_update_relationship(config: EgoConfig, args: dict[str, Any]) -> str:
     """Update relationship model."""
     person = args["person"]
     original_field = str(args["field"])
     field_name = _FIELD_ALIASES.get(original_field, original_field)
     value = args["value"]
+    mode = str(args.get("mode", "add"))
+    if mode not in ("add", "remove"):
+        return f"Unknown mode '{mode}'. Use 'add' or 'remove'."
     if original_field == "dominant_tone" and isinstance(value, str):
         value = {value: 1.0}
     relationship_store = _relationship_store(config)
     resolved = relationship_store.resolve_person(person)
     if resolved is not None:
         person = resolved
+    if field_name in TEXT_LIST_FIELDS:
+        return _update_relationship_text_list(
+            relationship_store, person, original_field, field_name, value, mode
+        )
+    if mode == "remove":
+        return (
+            f"'{original_field}' can't have items removed; "
+            f"mode='remove' works for {', '.join(sorted(TEXT_LIST_FIELDS))}."
+        )
     try:
         relationship_store.update(person, {field_name: value})
     except ValueError as exc:
@@ -593,7 +670,9 @@ def _handle_update_relationship(config: EgoConfig, args: dict[str, Any]) -> str:
             )
         return msg
     except TypeError:
-        return f"The value for '{original_field}' doesn't quite fit — it may need a different type."
+        expected = _RELATIONSHIP_TYPE_WORDS.get(field_name)
+        hint = f" — it expects {expected}" if expected else " — it may need a different type"
+        return f"The value for '{original_field}' doesn't quite fit{hint}."
     return f"Updated {person}.{field_name}"
 
 

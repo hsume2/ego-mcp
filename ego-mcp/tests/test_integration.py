@@ -204,6 +204,8 @@ class TestMcpBoundary:
         assert "enum" in field_prop
         assert "trust_level" in field_prop["enum"]
         assert "intensity" in str(field_prop.get("description", ""))
+        assert props["mode"]["enum"] == ["add", "remove"]
+        assert "mode" not in update_tool.inputSchema["required"]
 
     @pytest.mark.asyncio
     async def test_remember_schema_includes_shared_episode_fields(self) -> None:
@@ -2081,7 +2083,62 @@ class TestUpdateRelationship:
         assert "communication_style" in result
 
     @pytest.mark.asyncio
-    async def test_rejects_string_for_list_field(
+    async def test_string_for_list_field_appends(
+        self,
+        config: EgoConfig,
+        memory: MemoryStore,
+        desire: DesireEngine,
+        episodes: EpisodeStore,
+        consolidation: ConsolidationEngine,
+    ) -> None:
+        for value in ("likes coffee", "has two dogs"):
+            result = await _call(
+                "update_relationship",
+                {"person": "Master", "field": "known_facts", "value": value},
+                config,
+                memory,
+                desire,
+                episodes,
+                consolidation,
+            )
+            assert "Added 1 to Master.known_facts" in result
+        rel = server_mod._relationship_store(config).get("Master")
+        assert rel.known_facts == ["likes coffee", "has two dogs"]
+
+    @pytest.mark.asyncio
+    async def test_list_field_skips_duplicates(
+        self,
+        config: EgoConfig,
+        memory: MemoryStore,
+        desire: DesireEngine,
+        episodes: EpisodeStore,
+        consolidation: ConsolidationEngine,
+    ) -> None:
+        await _call(
+            "update_relationship",
+            {"person": "Master", "field": "facts", "value": "likes coffee"},
+            config,
+            memory,
+            desire,
+            episodes,
+            consolidation,
+        )
+        result = await _call(
+            "update_relationship",
+            {"person": "Master", "field": "facts", "value": ["Likes  Coffee", "plays go"]},
+            config,
+            memory,
+            desire,
+            episodes,
+            consolidation,
+        )
+        assert "Added 1 to Master.known_facts (2 total)" in result
+        assert "Already there: Likes  Coffee" in result
+        rel = server_mod._relationship_store(config).get("Master")
+        assert rel.known_facts == ["likes coffee", "plays go"]
+
+    @pytest.mark.asyncio
+    async def test_stringified_json_list_is_split_into_items(
         self,
         config: EgoConfig,
         memory: MemoryStore,
@@ -2094,7 +2151,7 @@ class TestUpdateRelationship:
             {
                 "person": "Master",
                 "field": "known_facts",
-                "value": "likes coffee",
+                "value": '["likes coffee", "plays go"]',
             },
             config,
             memory,
@@ -2102,8 +2159,107 @@ class TestUpdateRelationship:
             episodes,
             consolidation,
         )
-        assert "doesn't quite fit" in result
-        assert "known_facts" in result
+        assert "Added 2" in result
+        rel = server_mod._relationship_store(config).get("Master")
+        assert rel.known_facts == ["likes coffee", "plays go"]
+
+    @pytest.mark.asyncio
+    async def test_list_value_does_not_replace_existing_items(
+        self,
+        config: EgoConfig,
+        memory: MemoryStore,
+        desire: DesireEngine,
+        episodes: EpisodeStore,
+        consolidation: ConsolidationEngine,
+    ) -> None:
+        store = server_mod._relationship_store(config)
+        store.update("Master", {"known_facts": ["one", "two"]})
+        await _call(
+            "update_relationship",
+            {"person": "Master", "field": "known_facts", "value": ["three"]},
+            config,
+            memory,
+            desire,
+            episodes,
+            consolidation,
+        )
+        rel = server_mod._relationship_store(config).get("Master")
+        assert rel.known_facts == ["one", "two", "three"]
+
+    @pytest.mark.asyncio
+    async def test_remove_mode_deletes_matching_items(
+        self,
+        config: EgoConfig,
+        memory: MemoryStore,
+        desire: DesireEngine,
+        episodes: EpisodeStore,
+        consolidation: ConsolidationEngine,
+    ) -> None:
+        store = server_mod._relationship_store(config)
+        store.update("Master", {"known_facts": ["likes coffee", "plays go"]})
+        result = await _call(
+            "update_relationship",
+            {
+                "person": "Master",
+                "field": "known_facts",
+                "value": ["LIKES COFFEE", "hates tea"],
+                "mode": "remove",
+            },
+            config,
+            memory,
+            desire,
+            episodes,
+            consolidation,
+        )
+        assert "Removed 1 from Master.known_facts (1 left)" in result
+        assert "Not found: hates tea" in result
+        rel = server_mod._relationship_store(config).get("Master")
+        assert rel.known_facts == ["plays go"]
+
+    @pytest.mark.asyncio
+    async def test_list_field_rejects_object_value(
+        self,
+        config: EgoConfig,
+        memory: MemoryStore,
+        desire: DesireEngine,
+        episodes: EpisodeStore,
+        consolidation: ConsolidationEngine,
+    ) -> None:
+        for value in ({"fact": "likes coffee"}, '{"fact": "likes coffee"}', [{"content": "x"}]):
+            result = await _call(
+                "update_relationship",
+                {"person": "Master", "field": "known_facts", "value": value},
+                config,
+                memory,
+                desire,
+                episodes,
+                consolidation,
+            )
+            assert "takes text" in result
+        rel = server_mod._relationship_store(config).get("Master")
+        assert rel.known_facts == []
+
+    @pytest.mark.asyncio
+    async def test_remove_mode_rejected_for_scalar_field(
+        self,
+        config: EgoConfig,
+        memory: MemoryStore,
+        desire: DesireEngine,
+        episodes: EpisodeStore,
+        consolidation: ConsolidationEngine,
+    ) -> None:
+        result = await _call(
+            "update_relationship",
+            {"person": "Master", "field": "trust_level", "value": 0.8, "mode": "remove"},
+            config,
+            memory,
+            desire,
+            episodes,
+            consolidation,
+        )
+        assert "can't have items removed" in result
+        rel = server_mod._relationship_store(config).get("Master")
+        assert rel.trust_level == 0.5
 
     @pytest.mark.asyncio
     async def test_rejects_string_for_trust_level(
@@ -2125,6 +2281,7 @@ class TestUpdateRelationship:
         )
         assert "doesn't quite fit" in result
         assert "trust_level" in result
+        assert "a number from 0 to 1" in result
 
 
 class TestUpdateSelf:

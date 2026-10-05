@@ -200,6 +200,46 @@ class TestHandleConsiderThem:
         assert "sensitive_topics=" in result
 
     @pytest.mark.asyncio
+    async def test_known_facts_shown(
+        self, config: EgoConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        store = RelationshipStore(config.data_dir / "relationships" / "models.json")
+        store.update("TestUser", {"known_facts": ["likes coffee", "has two dogs"]})
+
+        async def fake_tendency(_mem: object, _person: str) -> tuple[str, str, list[str], list[str]]:
+            return "occasional", "neutral", [], []
+
+        monkeypatch.setattr(core_mod, "_summarize_conversation_tendency", fake_tendency)
+        mock_store = MagicMock()
+        mock_store.list_all.return_value = []
+        monkeypatch.setattr(core_mod, "get_notion_store", lambda: mock_store)
+
+        result = await _handle_consider_them(config, AsyncMock(), {})
+        assert "Known about TestUser:\n- likes coffee\n- has two dogs" in result
+
+    @pytest.mark.asyncio
+    async def test_known_facts_capped_to_newest(
+        self, config: EgoConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        facts = [f"fact {i}" for i in range(core_mod.CONSIDER_THEM_FACTS_MAX + 3)]
+        store = RelationshipStore(config.data_dir / "relationships" / "models.json")
+        store.update("TestUser", {"known_facts": facts})
+
+        async def fake_tendency(_mem: object, _person: str) -> tuple[str, str, list[str], list[str]]:
+            return "occasional", "neutral", [], []
+
+        monkeypatch.setattr(core_mod, "_summarize_conversation_tendency", fake_tendency)
+        mock_store = MagicMock()
+        mock_store.list_all.return_value = []
+        monkeypatch.setattr(core_mod, "get_notion_store", lambda: mock_store)
+
+        result = await _handle_consider_them(config, AsyncMock(), {})
+        limit = core_mod.CONSIDER_THEM_FACTS_MAX
+        assert f"Known about TestUser (latest {limit} of {len(facts)}):" in result
+        assert "- fact 0\n" not in result
+        assert f"- {facts[-1]}" in result
+
+    @pytest.mark.asyncio
     async def test_emotional_baseline_shown(
         self, config: EgoConfig, monkeypatch: pytest.MonkeyPatch
     ) -> None:

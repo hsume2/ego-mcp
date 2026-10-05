@@ -38,6 +38,16 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "relation_kind": str,
 }
 
+# List fields that hold free text and grow one item at a time through the
+# update_relationship tool (add/remove) instead of being overwritten.
+TEXT_LIST_FIELDS = frozenset(
+    {"known_facts", "preferred_topics", "sensitive_topics", "aliases"}
+)
+
+
+def _normalize_item(item: str) -> str:
+    return " ".join(item.split()).casefold()
+
 
 class RelationshipStore:
     """JSON-backed store for per-person relationship models."""
@@ -120,6 +130,63 @@ class RelationshipStore:
         self._data[person_id] = raw
         self._save()
         return self.get(person_id)
+
+    def _text_list(self, raw: dict[str, Any], field_name: str) -> list[str]:
+        if field_name not in TEXT_LIST_FIELDS:
+            raise ValueError(f"'{field_name}' is not a text list field")
+        current = raw.get(field_name, [])
+        if not isinstance(current, list):
+            return []
+        return [str(item) for item in current]
+
+    def add_list_items(
+        self, person_id: str, field_name: str, items: list[str]
+    ) -> tuple[list[str], list[str]]:
+        """Append *items* to a text list field, skipping duplicates.
+
+        Duplicates are matched ignoring case and whitespace, both against the
+        stored list and within *items*. Returns ``(added, already_present)``.
+        """
+        raw = self._get_raw(person_id)
+        current = self._text_list(raw, field_name)
+        seen = {_normalize_item(item) for item in current}
+        added: list[str] = []
+        already: list[str] = []
+        for item in items:
+            key = _normalize_item(item)
+            if key in seen:
+                already.append(item)
+                continue
+            seen.add(key)
+            current.append(item)
+            added.append(item)
+        if added:
+            raw[field_name] = current
+            self._data[person_id] = raw
+            self._save()
+        return added, already
+
+    def remove_list_items(
+        self, person_id: str, field_name: str, items: list[str]
+    ) -> tuple[list[str], list[str]]:
+        """Remove *items* from a text list field.
+
+        Matching ignores case and whitespace. Returns ``(removed, missing)``,
+        where ``removed`` holds the stored wording of each removed entry.
+        """
+        raw = self._get_raw(person_id)
+        current = self._text_list(raw, field_name)
+        targets = {_normalize_item(item): item for item in items}
+        removed = [item for item in current if _normalize_item(item) in targets]
+        removed_keys = {_normalize_item(item) for item in removed}
+        missing = [item for key, item in targets.items() if key not in removed_keys]
+        if removed:
+            raw[field_name] = [
+                item for item in current if _normalize_item(item) not in removed_keys
+            ]
+            self._data[person_id] = raw
+            self._save()
+        return removed, missing
 
     def add_interaction(
         self, person_id: str, timestamp: str, tone: str

@@ -432,6 +432,8 @@ DRIFT_PRESENT_COOLDOWN_DAYS = 7.0
 DRIFT_MAX_REPLACEMENTS = 2
 #: D3 D2: the "Unconnected density" section is at most this many lines.
 HOLES_MAX_LINES = 4
+#: consider_them lists at most this many known_facts (the newest ones).
+CONSIDER_THEM_FACTS_MAX = 10
 #: D6 D3 / S3: appended to the introspect scaffold while 6b is enabled.
 STAGNATION_BRIDGE_LINE = (
     "Some of this might be worth bringing to {companion_name} "
@@ -1339,6 +1341,15 @@ async def _handle_consider_them(
             if isinstance(item, dict)
         )
         data_lines.append(f"Recent mood trajectory: {mood_tail}")
+    if rel.known_facts:
+        name = rel.name if rel and rel.name else person
+        shown = rel.known_facts[-CONSIDER_THEM_FACTS_MAX:]
+        if len(shown) < len(rel.known_facts):
+            header = f"Known about {name} (latest {len(shown)} of {len(rel.known_facts)}):"
+        else:
+            header = f"Known about {name}:"
+        data_lines.append(header)
+        data_lines.extend(f"- {fact}" for fact in shown)
     if absence_frame:
         data_lines.append(absence_frame)
     affect_line = _affect_trajectory_line(config, person, now)

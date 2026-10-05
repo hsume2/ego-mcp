@@ -40,6 +40,29 @@ class TestRelationshipStore:
         with pytest.raises(ValueError, match="Invalid relationship field"):
             store.update("Master", {"trust": 0.9})
 
+    def test_add_list_items_appends_and_dedupes(self, tmp_path: Path) -> None:
+        store = RelationshipStore(tmp_path / "relationships.json")
+        store.update("Master", {"known_facts": ["likes coffee"]})
+        added, already = store.add_list_items(
+            "Master", "known_facts", ["plays go", " Likes   COFFEE ", "plays go"]
+        )
+        assert added == ["plays go"]
+        assert already == [" Likes   COFFEE ", "plays go"]
+        assert store.get("Master").known_facts == ["likes coffee", "plays go"]
+
+    def test_remove_list_items(self, tmp_path: Path) -> None:
+        store = RelationshipStore(tmp_path / "relationships.json")
+        store.update("Master", {"aliases": ["Mas", "M"]})
+        removed, missing = store.remove_list_items("Master", "aliases", ["mas", "X"])
+        assert removed == ["Mas"]
+        assert missing == ["X"]
+        assert RelationshipStore(tmp_path / "relationships.json").get("Master").aliases == ["M"]
+
+    def test_list_item_methods_reject_non_text_list_field(self, tmp_path: Path) -> None:
+        store = RelationshipStore(tmp_path / "relationships.json")
+        with pytest.raises(ValueError):
+            store.add_list_items("Master", "shared_episode_ids", ["ep1"])
+
     def test_updatable_fields_excludes_person_id(self) -> None:
         assert "person_id" not in _UPDATABLE_FIELDS
 

@@ -564,3 +564,21 @@ class TestFormatRecallEntry:
         text = _format_recall_entry(1, result_obj, now=NOW)
         assert "1." in text
         assert "score: 0.50" in text
+
+    def test_includes_memory_id_in_header(self) -> None:
+        from ego_mcp._server_emotion_formatting import _format_recall_entry
+        from ego_mcp.types import MemorySearchResult
+
+        m = _make_memory(id="mem_abc123", content="vivid note", hours_ago=1)
+        result_obj = MemorySearchResult(memory=m, score=0.75, decay=0.85)
+        text = _format_recall_entry(1, result_obj, now=NOW)
+        assert text.splitlines()[0] == "1. [3h ago] [id: mem_abc123] vivid note"
+
+    def test_includes_memory_id_when_faded(self) -> None:
+        from ego_mcp._server_emotion_formatting import _format_recall_entry
+        from ego_mcp.types import MemorySearchResult
+
+        m = _make_memory(id="mem_faded01", content="faded note", hours_ago=1)
+        result_obj = MemorySearchResult(memory=m, score=0.5, decay=0.05)
+        text = _format_recall_entry(2, result_obj, now=NOW)
+        assert text.startswith("2. [3h ago] [id: mem_faded01] ")

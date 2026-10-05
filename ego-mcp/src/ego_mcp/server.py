@@ -277,13 +277,13 @@ def _sanitize_tool_output_for_logging(
 
     lines = output.splitlines()
     for idx, line in enumerate(lines[:-1]):
-        if not re.match(r"^[0-9]+\. \[[^\]]+\] ", line):
+        # Keep the index, age and memory id; only the content is sensitive.
+        match = re.match(r"^[0-9]+\. \[[^\]]+\](?: \[id: [^\]]+\])? ", line)
+        if not match:
             continue
         if "private" not in lines[idx + 1]:
             continue
-        prefix, _sep, _rest = line.partition("] ")
-        if _sep:
-            lines[idx] = f"{prefix}] [REDACTED_PRIVATE_MEMORY]"
+        lines[idx] = f"{match.group(0)}[REDACTED_PRIVATE_MEMORY]"
     return "\n".join(lines)
 
 

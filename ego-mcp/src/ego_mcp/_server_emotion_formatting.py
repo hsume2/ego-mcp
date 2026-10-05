@@ -131,7 +131,8 @@ def _format_recall_entry(
     if not formatted:
         formatted = [_truncate_for_quote(memory.content, limit=70)]
 
-    lines = [f"{index}. [{age}] {formatted[0]}"]
+    id_tag = f"[id: {memory.id}] " if memory.id else ""
+    lines = [f"{index}. [{age}] {id_tag}{formatted[0]}"]
     for detail_line in formatted[1:]:
         lines.append(f"   {detail_line.strip()}")
     formatted_text = "\n".join(formatted)

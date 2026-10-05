@@ -469,11 +469,11 @@ Do any of these connections surprise you? Is there a pattern forming?
 
 ```
 3 of ~50 memories (showing top matches):
-1. [2d ago] Discussed heartbeat config
+1. [2d ago] [id: mem_3f9a1c2b7d40] Discussed heartbeat config
    emotion: curious | importance: 4 | score: 0.87 | decay: 0.92
-2. [4d ago] Watched sunset together
+2. [4d ago] [id: mem_8e21d0b4a9c7] Watched sunset together
    emotion: moved(0.9) | importance: 5 | score: 0.82 | decay: 0.85
-3. curious introspection — heartbeat, config (~2 weeks ago) decay: 0.35
+3. [2w ago] [id: mem_51c7e93f02ab] curious introspection — heartbeat, config (~2 weeks ago) decay: 0.35
 
 --- notions ---
 "config & heartbeat (curious)" curious confidence: 0.6
@@ -666,7 +666,7 @@ If both have value, consider which perspective to keep.
   "properties": {
     "memory_id": {
       "type": "string",
-      "description": "ID of the memory to delete"
+      "description": "ID of the memory to delete (shown as [id: ...] in recall results)"
     }
   },
   "required": ["memory_id"]

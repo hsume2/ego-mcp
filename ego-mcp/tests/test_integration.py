@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1650,6 +1651,50 @@ class TestRecall:
         assert captured["n_results"] == 10
 
     @pytest.mark.asyncio
+    async def test_recall_ids_can_be_passed_to_forget(
+        self,
+        config: EgoConfig,
+        memory: MemoryStore,
+        desire: DesireEngine,
+        episodes: EpisodeStore,
+        consolidation: ConsolidationEngine,
+    ) -> None:
+        token = "recall-id-forget-token"
+        await _call(
+            "remember",
+            {"content": f"{token} something to let go of", "emotion": "neutral"},
+            config,
+            memory,
+            desire,
+            episodes,
+            consolidation,
+        )
+        recalled = await _call(
+            "recall",
+            {"context": token, "n_results": 1},
+            config,
+            memory,
+            desire,
+            episodes,
+            consolidation,
+        )
+        match = re.search(r"^1\. \[[^\]]+\] \[id: (mem_[0-9a-f]+)\] ", recalled, re.M)
+        assert match is not None, recalled
+        memory_id = match.group(1)
+
+        forgotten = await _call(
+            "forget",
+            {"memory_id": memory_id},
+            config,
+            memory,
+            desire,
+            episodes,
+            consolidation,
+        )
+        assert f"Forgot {memory_id}" in forgotten
+        assert await memory.get_by_id(memory_id) is None
+
+    @pytest.mark.asyncio
     async def test_recall_result_format_includes_relative_time_and_undercurrent(
         self,
         config: EgoConfig,
@@ -1709,6 +1754,17 @@ class TestToolLoggingPrivacy:
         assert "[REDACTED_PRIVATE_MEMORY]" in sanitized
         assert "secret private content should be masked" not in sanitized
         assert "public content remains visible" in sanitized
+
+    def test_recall_sanitize_keeps_memory_id_for_private_entry(self) -> None:
+        raw = (
+            "1 of ~10 memories (showing top matches):\n"
+            "1. [2d ago] [id: mem_0123abcd4567] secret private content\n"
+            "   emotion: moved(0.9) | importance: 4 | private\n"
+            "   score: 0.82 | decay: 0.90\n"
+        )
+        sanitized = server_mod._sanitize_tool_output_for_logging("recall", None, raw)
+        assert "1. [2d ago] [id: mem_0123abcd4567] [REDACTED_PRIVATE_MEMORY]" in sanitized
+        assert "secret private content" not in sanitized
 
     @pytest.mark.asyncio
     async def test_private_remember_masks_content_in_logs(

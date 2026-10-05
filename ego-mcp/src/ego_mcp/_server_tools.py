@@ -206,7 +206,7 @@ BACKEND_TOOLS: list[Tool] = [
             "properties": {
                 "memory_id": {
                     "type": "string",
-                    "description": "Memory ID.",
+                    "description": "Memory ID, as shown in recall results ([id: ...]).",
                 }
             },
             "required": ["memory_id"],

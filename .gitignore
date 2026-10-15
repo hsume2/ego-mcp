@@ -42,3 +42,4 @@ __pycache__/
 ego-mcp/.env
 ego-mcp/data/
 ego-mcp/logs/
+ego-mcp/instances/

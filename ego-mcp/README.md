@@ -315,6 +315,22 @@ claude mcp add --transport http ego-mcp http://172.17.0.1:8765/mcp \
 - The bearer token is the only protection; the server speaks plain HTTP, so put it behind a TLS reverse proxy if traffic leaves a trusted network.
 - The nightly derived batch can run in the same image: `docker compose run --rm ego-mcp python -m ego_mcp.derived`.
 
+### Multiple instances
+
+Each instance is its own compose project (`ego-mcp-<EGO_MCP_INSTANCE>`) with its own env file, port, token and data/log mounts. Keep them under `instances/` (gitignored):
+
+```bash
+# instances/alice.env: copy of .env.example with
+#   EGO_MCP_INSTANCE=alice
+#   EGO_MCP_HTTP_PORT=8766               # unique per instance
+#   EGO_MCP_HTTP_TOKEN=<openssl rand -hex 32>
+#   EGO_MCP_DATA_MOUNT=./instances/alice/data
+#   EGO_MCP_LOG_MOUNT=./instances/alice/logs
+mkdir -p instances/alice/data instances/alice/logs
+docker compose --env-file instances/alice.env up -d --build
+docker compose --env-file instances/alice.env run --rm ego-mcp python -m ego_mcp.derived
+```
+
 ## Derived Layer (optional nightly batch)
 
 `python -m ego_mcp.derived` reads the memory store and the JSON stores **read-only**, computes secondary information, and writes one JSON file per lens under `${EGO_MCP_DATA_DIR}/derived/` (IDs, numbers and dates only — never memory text). The server reads those files and surfaces them as hints in `wake_up`, `introspect`, `consider_them`, `attune`, `recall` and `consolidate`; missing, expired or corrupt files simply mean no hint that day.

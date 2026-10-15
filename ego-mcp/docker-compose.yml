@@ -10,10 +10,21 @@
 # http://172.17.0.1:${EGO_MCP_HTTP_PORT}/mcp (or http://ego-mcp:8765/mcp from
 # a container on the same compose network) with
 # "Authorization: Bearer ${EGO_MCP_HTTP_TOKEN}".
+#
+# Several independent instances can share this file: give each its own env
+# file with a distinct EGO_MCP_INSTANCE, port, token and data/log mounts, e.g.
+#
+#   docker compose --env-file instances/alice.env up -d --build
+#   docker compose --env-file instances/bob.env up -d
+#
+# Each instance gets its own compose project and container (ego-mcp-<name>).
+name: ego-mcp-${EGO_MCP_INSTANCE:-default}
+
 services:
   ego-mcp:
     build: .
     image: ego-mcp:local
+    container_name: ego-mcp-${EGO_MCP_INSTANCE:-default}
     restart: unless-stopped
     user: "${EGO_MCP_UID:-1000}:${EGO_MCP_GID:-1000}"
     environment:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -588,6 +589,80 @@ async def test_new_question_with_and_supersedes_lifecycle(
     assert alias_entry["person_id"] == "alice"
     assert "Held with Alice." in aliased
     assert "(supersedes q_missing not found — held as a fresh question.)" in bad_supersedes
+
+
+@pytest.mark.asyncio
+async def test_new_question_accepts_json_string_and_bare_string(
+    config: EgoConfig,
+) -> None:
+    json_string = _handle_update_self(
+        config,
+        {
+            "field": "new_question",
+            "value": '{"question": "What kind of rest do I need?", "importance": 4}',
+        },
+    )
+    bare = _handle_update_self(
+        config,
+        {
+            "field": "new_question",
+            "value": "What do I keep circling back to?",
+        },
+    )
+    quoted = _handle_update_self(
+        config,
+        {
+            "field": "new_question",
+            "value": '"What kind of questions still echo?"',
+        },
+    )
+    entries = SelfModelStore(config.data_dir / "self_model.json").get_question_log()
+    by_text = {entry["question"]: entry for entry in entries}
+
+    assert "Holding new question" in json_string
+    assert by_text["What kind of rest do I need?"]["importance"] == 4
+    assert "Holding new question" in bare
+    assert "What do I keep circling back to?" in by_text
+    assert "Holding new question" in quoted
+    assert "What kind of questions still echo?" in by_text
+
+    empty = _handle_update_self(
+        config,
+        {"field": "new_question", "value": "   "},
+    )
+    non_dict_json = _handle_update_self(
+        config,
+        {"field": "new_question", "value": "[1]"},
+    )
+    missing_question = _handle_update_self(
+        config,
+        {"field": "new_question", "value": '{"importance": 2}'},
+    )
+    for rejected in (empty, non_dict_json, missing_question):
+        assert rejected == 'new_question expects {"question": str, "importance": 1-5}.'
+
+
+@pytest.mark.asyncio
+async def test_question_importance_accepts_json_string(
+    config: EgoConfig,
+) -> None:
+    store = SelfModelStore(config.data_dir / "self_model.json")
+    qid = store.add_question("Tuning importance", importance=3)
+
+    ok = _handle_update_self(
+        config,
+        {
+            "field": "question_importance",
+            "value": json.dumps({"id": qid, "importance": 5}),
+        },
+    )
+    assert ok == f"Updated question importance for {qid}."
+
+    rejected = _handle_update_self(
+        config,
+        {"field": "question_importance", "value": "not a dict"},
+    )
+    assert rejected == "question_importance expects {id, importance}."
 
 
 @pytest.mark.asyncio

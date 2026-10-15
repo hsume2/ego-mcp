@@ -684,6 +684,16 @@ _SELF_FIELD_ALIASES: dict[str, str] = {
 }
 
 
+def _coerce_json_string(value: Any) -> Any:
+    """Parse a JSON-encoded string into its value; leave anything else untouched."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
 def _dedupe_preserving_order(items: list[str]) -> list[str]:
     deduped: list[str] = []
     seen: set[str] = set()
@@ -741,6 +751,9 @@ def _handle_update_self(config: EgoConfig, args: dict[str, Any]) -> str:
     store = SelfModelStore(config.data_dir / "self_model.json")
 
     if field_name == "new_question":
+        value = _coerce_json_string(value)
+        if isinstance(value, str) and value.strip():
+            value = {"question": value}
         if not isinstance(value, dict) or not str(value.get("question", "")).strip():
             return 'new_question expects {"question": str, "importance": 1-5}.'
         question = str(value["question"]).strip()
@@ -804,6 +817,7 @@ def _handle_update_self(config: EgoConfig, args: dict[str, Any]) -> str:
         return f"Question {question_id} not found or already resolved."
 
     if field_name == "question_importance":
+        value = _coerce_json_string(value)
         if not isinstance(value, dict):
             return "question_importance expects {id, importance}."
         question_id = str(value.get("id", ""))

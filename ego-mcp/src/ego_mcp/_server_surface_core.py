@@ -38,7 +38,11 @@ from ego_mcp._server_surface_person import (
     _format_active_persons,
     _get_active_person_ids,
 )
-from ego_mcp.absence import absence_band, approx_duration_words
+from ego_mcp.absence import (
+    absence_band,
+    approx_duration_ago_words,
+    approx_duration_words,
+)
 from ego_mcp.anticipation import (
     format_approaching_anticipation,
     format_arrived_anticipation,
@@ -157,7 +161,7 @@ def _last_interaction_words(timestamp: str, now: datetime) -> str:
         return ""
     parsed = timezone_utils.localize(parsed)
     elapsed_days = max(0.0, (now - parsed).total_seconds() / 86400.0)
-    return f"{approx_duration_words(elapsed_days)} ago"
+    return approx_duration_ago_words(elapsed_days, then=parsed, now=now)
 
 
 def _parse_reunion_noted_at(value: Any) -> datetime | None:
@@ -736,7 +740,7 @@ async def _chapter_lines(
             )
             return [
                 "Chapters (unnamed):",
-                f"  A turn around {approx_duration_words(age_days)} ago — "
+                f"  A turn around {approx_duration_ago_words(age_days)} — "
                 f'from "{_truncate_for_quote(before.content, 60)}"'
                 f' toward "{_truncate_for_quote(after.content, 60)}".',
                 "  If it has a name, that's yours to give.",
@@ -747,7 +751,7 @@ async def _chapter_lines(
         update_tool_metadata(chapter_count=len(all_items))
         return [
             f"Chapters (unnamed): {count_words(len(all_items))} turns so far, "
-            f"the last one {approx_duration_words(latest_age)} ago."
+            f"the last one {approx_duration_ago_words(latest_age)}."
         ]
     except Exception:
         _logger.debug("Skipped chapter lines", exc_info=True)
@@ -1322,7 +1326,11 @@ async def _handle_consider_them(
         )[0]
         relationship_summary += f", baseline_tone={baseline_tone}"
 
-    tendency = f"Recent dialog tendency: {frequency}, observed_tone={dominant_tone}"
+    tendency = ""
+    if frequency:
+        tendency = f"Recent dialog tendency: {frequency}"
+        if dominant_tone:
+            tendency += f", observed_tone={dominant_tone}"
     band, elapsed_days = absence_band(store.raw(person), now)
     absence_frame = ""
     if band in ("quiet", "long"):
@@ -1333,7 +1341,7 @@ async def _handle_consider_them(
             "They may have changed in that time. What would you want to ask first?"
         )
     recent_moods = rel.recent_mood_trajectory[-3:]
-    data_lines = [relationship_summary, tendency]
+    data_lines = [relationship_summary, *([tendency] if tendency else [])]
     if recent_moods:
         mood_tail = " > ".join(
             str(item.get("mood", "unknown"))

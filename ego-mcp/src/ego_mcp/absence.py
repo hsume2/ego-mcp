@@ -99,3 +99,11 @@ def approx_duration_words(days: float) -> str:
     if days < 550:
         return "about a year"
     return "well over a year"
+
+
+def approx_duration_ago_words(days: float) -> str:
+    """approx_duration_words phrased for a trailing position where "ago" is wanted —
+    "earlier today" already places the time, so it takes no "ago"; everything else
+    reads "<words> ago"."""
+    words = approx_duration_words(days)
+    return words if words == "earlier today" else f"{words} ago"

@@ -314,6 +314,28 @@ class TestHandleConsiderThem:
         assert reloaded.get("TestUser").total_interactions == 1
 
     @pytest.mark.asyncio
+    async def test_earlier_today_last_moment_has_no_ago(
+        self,
+        config: EgoConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        now = datetime(2026, 7, 2, 12, tzinfo=timezone.utc)
+        monkeypatch.setattr(timezone_utils, "now", lambda: now)
+        store = RelationshipStore(config.data_dir / "relationships" / "models.json")
+        store.update("TestUser", {"name": "TestUser"})
+        store.add_interaction("TestUser", "2026-07-02T10:00:00+00:00", "calm")
+        mock_store = MagicMock()
+        mock_store.list_all.return_value = []
+        monkeypatch.setattr(core_mod, "get_notion_store", lambda: mock_store)
+
+        mem = AsyncMock()
+        mem.list_recent = AsyncMock(return_value=[])
+        result = await _handle_consider_them(config, mem, {})
+
+        assert "last shared moment earlier today" in result
+        assert "earlier today ago" not in result
+
+    @pytest.mark.asyncio
     async def test_summary_words_relationship_numbers_and_preserves_topic_fields(
         self,
         config: EgoConfig,

@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from ego_mcp import timezone_utils
-from ego_mcp.absence import approx_duration_words
+from ego_mcp.absence import approx_duration_ago_words
 from ego_mcp.config import EgoConfig
 from ego_mcp.derived.contract import DerivedReader
 from ego_mcp.memory import MemoryStore
@@ -150,7 +150,7 @@ def _last_interaction_words(timestamp: str, now: datetime) -> str:
         0.0,
         (now - parsed).total_seconds() / 86400.0,
     )
-    return f"{approx_duration_words(elapsed_days)} ago"
+    return approx_duration_ago_words(elapsed_days)
 
 
 async def _summarize_conversation_tendency(
@@ -160,9 +160,28 @@ async def _summarize_conversation_tendency(
     person_lc = person.lower()
 
     filtered = [m for m in conversations if person_lc in m.content.lower()]
-    pool = filtered if filtered else conversations
-    if not pool:
-        return "no recent conversation memories", "unknown tone", [], []
+    if filtered:
+        pool = filtered
+        matched_person = True
+    else:
+        # This companion may file exchanges under other categories — fall back to
+        # recent memories of any category that involve the person, then to the
+        # conversation pool at large.
+        recent = await memory.list_recent(n=200)
+        shared = [
+            m
+            for m in recent
+            if person_lc in m.content.lower()
+            or any(pid.lower() == person_lc for pid in m.involved_person_ids)
+        ]
+        if shared:
+            pool = shared
+            matched_person = True
+        elif conversations:
+            pool = conversations
+            matched_person = False
+        else:
+            return "", "", [], []
 
     now = timezone_utils.now()
     window_start = now - timedelta(days=7)
@@ -182,7 +201,7 @@ async def _summarize_conversation_tendency(
             continue
 
     dominant_tone = max(tones.items(), key=lambda x: x[1])[0]
-    frequency = _frequency_words(last_7d, matched_person=bool(filtered))
+    frequency = _frequency_words(last_7d, matched_person=matched_person)
     preferred_topics, sensitive_topics = _infer_topics_from_memories(pool)
     return frequency, dominant_tone, preferred_topics, sensitive_topics
 
@@ -232,12 +251,14 @@ async def _relationship_snapshot(
     ]
     if rel.shared_episode_ids:
         clauses[-1] += f", {episode_words(len(rel.shared_episode_ids))}"
-    clauses.append(f"usually {dominant_tone} between you")
+    if dominant_tone:
+        clauses.append(f"usually {dominant_tone} between you")
     if rel.last_interaction:
         last_interaction = _last_interaction_words(rel.last_interaction, now)
         if last_interaction:
             clauses.append(f"last shared moment {last_interaction}")
-    clauses.append(frequency)
+    if frequency:
+        clauses.append(frequency)
     return f"{person}: " + "; ".join(clauses) + "."
 
 

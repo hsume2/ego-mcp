@@ -2463,7 +2463,7 @@ class TestUpdateSelf:
         assert entry["importance"] == 3
 
     @pytest.mark.asyncio
-    async def test_new_question_rejects_non_dict_value(
+    async def test_new_question_accepts_bare_string_value(
         self,
         config: EgoConfig,
         memory: MemoryStore,
@@ -2482,8 +2482,11 @@ class TestUpdateSelf:
         )
         store = SelfModelStore(config.data_dir / "self_model.json")
 
-        assert result == 'new_question expects {"question": str, "importance": 1-5}.'
-        assert store.get_question_log() == []
+        assert result.startswith("Holding new question")
+        assert any(
+            entry["question"] == "What is still unfinished?"
+            for entry in store.get_question_log()
+        )
 
     @pytest.mark.asyncio
     async def test_unresolved_questions_list_shim_tracks_and_resolves(

@@ -342,6 +342,14 @@ class TestRelationshipSnapshot:
             == "yesterday"
         )
 
+    def test_last_interaction_words_future_date_stays_earlier_today(self) -> None:
+        # A clock-skew timestamp landing on a later local date is not "yesterday".
+        now = datetime(2026, 7, 1, 23, tzinfo=timezone.utc)
+        assert (
+            _last_interaction_words("2026-07-02T01:00:00+00:00", now)
+            == "earlier today"
+        )
+
     @pytest.mark.asyncio
     async def test_snapshot_omits_tone_and_frequency_when_no_memories(
         self,

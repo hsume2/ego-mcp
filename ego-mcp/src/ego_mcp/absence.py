@@ -115,7 +115,7 @@ def approx_duration_ago_words(
         if (
             then is not None
             and now is not None
-            and then.astimezone(now.tzinfo).date() != now.date()
+            and then.astimezone(now.tzinfo).date() < now.date()
         ):
             return "yesterday"
         return words

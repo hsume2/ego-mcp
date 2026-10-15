@@ -150,7 +150,7 @@ def _last_interaction_words(timestamp: str, now: datetime) -> str:
         0.0,
         (now - parsed).total_seconds() / 86400.0,
     )
-    return approx_duration_ago_words(elapsed_days)
+    return approx_duration_ago_words(elapsed_days, then=parsed, now=now)
 
 
 async def _summarize_conversation_tendency(
@@ -200,8 +200,12 @@ async def _summarize_conversation_tendency(
         except ValueError:
             continue
 
-    dominant_tone = max(tones.items(), key=lambda x: x[1])[0]
     frequency = _frequency_words(last_7d, matched_person=matched_person)
+    if not matched_person:
+        # The pool is unrelated conversations — its cadence is general enough to
+        # keep, but its tone and topics say nothing about this person.
+        return frequency, "", [], []
+    dominant_tone = max(tones.items(), key=lambda x: x[1])[0]
     preferred_topics, sensitive_topics = _infer_topics_from_memories(pool)
     return frequency, dominant_tone, preferred_topics, sensitive_topics
 

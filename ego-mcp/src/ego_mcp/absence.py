@@ -101,9 +101,22 @@ def approx_duration_words(days: float) -> str:
     return "well over a year"
 
 
-def approx_duration_ago_words(days: float) -> str:
+def approx_duration_ago_words(
+    days: float,
+    then: datetime | None = None,
+    now: datetime | None = None,
+) -> str:
     """approx_duration_words phrased for a trailing position where "ago" is wanted —
     "earlier today" already places the time, so it takes no "ago"; everything else
-    reads "<words> ago"."""
+    reads "<words> ago". When the actual dates are known, a sub-day span that
+    crosses local midnight reads "yesterday" instead of "earlier today"."""
     words = approx_duration_words(days)
-    return words if words == "earlier today" else f"{words} ago"
+    if words == "earlier today":
+        if (
+            then is not None
+            and now is not None
+            and then.astimezone(now.tzinfo).date() != now.date()
+        ):
+            return "yesterday"
+        return words
+    return f"{words} ago"

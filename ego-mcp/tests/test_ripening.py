@@ -609,6 +609,13 @@ async def test_new_question_accepts_json_string_and_bare_string(
             "value": "What do I keep circling back to?",
         },
     )
+    quoted = _handle_update_self(
+        config,
+        {
+            "field": "new_question",
+            "value": '"What kind of questions still echo?"',
+        },
+    )
     entries = SelfModelStore(config.data_dir / "self_model.json").get_question_log()
     by_text = {entry["question"]: entry for entry in entries}
 
@@ -616,6 +623,8 @@ async def test_new_question_accepts_json_string_and_bare_string(
     assert by_text["What kind of rest do I need?"]["importance"] == 4
     assert "Holding new question" in bare
     assert "What do I keep circling back to?" in by_text
+    assert "Holding new question" in quoted
+    assert "What kind of questions still echo?" in by_text
 
     empty = _handle_update_self(
         config,

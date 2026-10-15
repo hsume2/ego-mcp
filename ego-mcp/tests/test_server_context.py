@@ -335,6 +335,13 @@ class TestRelationshipSnapshot:
             == "a couple of days ago"
         )
 
+    def test_last_interaction_words_yesterday_across_midnight(self) -> None:
+        now = datetime(2026, 7, 2, 1, tzinfo=timezone.utc)
+        assert (
+            _last_interaction_words("2026-07-01T22:00:00+00:00", now)
+            == "yesterday"
+        )
+
     @pytest.mark.asyncio
     async def test_snapshot_omits_tone_and_frequency_when_no_memories(
         self,
@@ -383,6 +390,34 @@ class TestSummarizeConversationTendencyFallback:
 
         assert tone == "happy"
         assert frequency == "they've come up once or twice this week"
+
+    @pytest.mark.asyncio
+    async def test_unrelated_conversations_give_frequency_but_no_tone(
+        self,
+        config: EgoConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        now = datetime(2026, 7, 2, 12, tzinfo=timezone.utc)
+        monkeypatch.setattr(timezone_utils, "now", lambda: now)
+        strangers = [
+            _make_conversation_at(f"someone else chatted {i}", now - timedelta(days=1))
+            for i in range(3)
+        ]
+        mem = AsyncMock()
+        mem.list_recent = AsyncMock(return_value=strangers)
+
+        frequency, tone, preferred, sensitive = await _summarize_conversation_tendency(
+            mem, "TestUser"
+        )
+
+        assert frequency == "a steady week of conversation"
+        assert (tone, preferred, sensitive) == ("", [], [])
+
+        snapshot = await _relationship_snapshot(config, mem, "TestUser")
+
+        assert "usually" not in snapshot
+        assert "unknown tone" not in snapshot
+        assert "a steady week of conversation" in snapshot
 
     @pytest.mark.asyncio
     async def test_empty_pool_returns_no_tendency(self) -> None:

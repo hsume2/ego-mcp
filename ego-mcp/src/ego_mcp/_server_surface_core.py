@@ -161,7 +161,7 @@ def _last_interaction_words(timestamp: str, now: datetime) -> str:
         return ""
     parsed = timezone_utils.localize(parsed)
     elapsed_days = max(0.0, (now - parsed).total_seconds() / 86400.0)
-    return approx_duration_ago_words(elapsed_days)
+    return approx_duration_ago_words(elapsed_days, then=parsed, now=now)
 
 
 def _parse_reunion_noted_at(value: Any) -> datetime | None:
@@ -1326,11 +1326,11 @@ async def _handle_consider_them(
         )[0]
         relationship_summary += f", baseline_tone={baseline_tone}"
 
-    tendency = (
-        f"Recent dialog tendency: {frequency}, observed_tone={dominant_tone}"
-        if frequency
-        else ""
-    )
+    tendency = ""
+    if frequency:
+        tendency = f"Recent dialog tendency: {frequency}"
+        if dominant_tone:
+            tendency += f", observed_tone={dominant_tone}"
     band, elapsed_days = absence_band(store.raw(person), now)
     absence_frame = ""
     if band in ("quiet", "long"):

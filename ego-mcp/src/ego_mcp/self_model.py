@@ -146,6 +146,35 @@ def normalize_long_term_goals(raw: Any) -> list[dict[str, str]]:
     return normalized
 
 
+def normalize_long_term_progress(raw: Any) -> list[dict[str, str]]:
+    """Normalize long-term goal progress entries, skipping malformed entries."""
+    if not isinstance(raw, list):
+        return []
+
+    normalized: list[dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        goal_id = item.get("goal_id")
+        note = item.get("note")
+        if (
+            not isinstance(goal_id, str)
+            or not goal_id
+            or not isinstance(note, str)
+            or not note.strip()
+        ):
+            continue
+        at = item.get("at", "")
+        normalized.append(
+            {
+                "goal_id": goal_id,
+                "at": at if isinstance(at, str) else "",
+                "note": note,
+            }
+        )
+    return normalized
+
+
 def normalize_goal_log(raw: Any) -> list[dict[str, Any]]:
     """Normalize a raw ``goal_log`` payload, skipping malformed entries."""
     if not isinstance(raw, list):
@@ -256,6 +285,7 @@ class SelfModelStore:
         data["unresolved_questions"] = []
         data["question_log"] = []
         data["long_term_goals"] = []
+        data["long_term_progress"] = []
         data["goal_log"] = []
         data["last_updated"] = timezone_utils.now().isoformat()
         return data
@@ -343,6 +373,11 @@ class SelfModelStore:
         if long_term != raw_long_term:
             changed = True
 
+        raw_long_term_progress = self._data.get("long_term_progress", [])
+        long_term_progress = normalize_long_term_progress(raw_long_term_progress)
+        if long_term_progress != raw_long_term_progress:
+            changed = True
+
         legacy_goals = self._data.get("current_goals", [])
         if isinstance(legacy_goals, list):
             known_texts = {entry["goal"] for entry in goal_log}
@@ -360,6 +395,7 @@ class SelfModelStore:
 
         self._data["goal_log"] = goal_log
         self._data["long_term_goals"] = long_term
+        self._data["long_term_progress"] = long_term_progress
         if self._data.get("current_goals") != []:
             self._data["current_goals"] = []
             changed = True
@@ -439,6 +475,15 @@ class SelfModelStore:
     def get_long_term_goals(self) -> list[dict[str, str]]:
         """Return normalized operator-set long-term goals."""
         return normalize_long_term_goals(self._data.get("long_term_goals", []))
+
+    def get_long_term_progress(
+        self, goal_id: str | None = None
+    ) -> list[dict[str, str]]:
+        """Return normalized long-term progress, optionally for one goal."""
+        progress = normalize_long_term_progress(self._data.get("long_term_progress", []))
+        if goal_id is not None:
+            progress = [entry for entry in progress if entry["goal_id"] == goal_id]
+        return progress
 
     def set_long_term_goals(self, goals: list[dict[str, Any]]) -> list[dict[str, str]]:
         """Replace all long-term goals, preserving only existing supplied IDs."""
@@ -527,7 +572,7 @@ class SelfModelStore:
         return str(new_entry["id"])
 
     def add_goal_progress(self, goal_id: str, note: str) -> bool:
-        """Append a progress note to an active short-term goal."""
+        """Append progress to an active short-term or current long-term goal."""
         if not note.strip():
             return False
         log = self.get_goal_log()
@@ -540,7 +585,33 @@ class SelfModelStore:
                 self._data["last_updated"] = timezone_utils.now().isoformat()
                 self._save()
                 return True
-        return False
+
+        if goal_id not in {item["id"] for item in self.get_long_term_goals()}:
+            return False
+
+        progress = self.get_long_term_progress()
+        entries_for_goal = sum(entry["goal_id"] == goal_id for entry in progress)
+        remove_count = max(0, entries_for_goal - 19)
+        if remove_count:
+            retained: list[dict[str, str]] = []
+            for entry in progress:
+                if entry["goal_id"] == goal_id and remove_count:
+                    remove_count -= 1
+                    continue
+                retained.append(entry)
+            progress = retained
+
+        progress.append(
+            {
+                "goal_id": goal_id,
+                "at": timezone_utils.now().isoformat(),
+                "note": note.strip(),
+            }
+        )
+        self._data["long_term_progress"] = progress
+        self._data["last_updated"] = timezone_utils.now().isoformat()
+        self._save()
+        return True
 
     def close_goal(
         self, goal_id: str, *, status: str, note: str | None = None

@@ -151,6 +151,7 @@ class TestSelfModelStore:
         entry = next(item for item in store.get_goal_log() if item["id"] == goal_id)
         assert entry["progress"][0]["note"] == "Reviewed five words"
         assert entry["progress"][0]["at"]
+        assert store.get_long_term_progress() == []
         assert store.close_goal(goal_id, status="done", note="Finished the week")
         assert store.get().current_goals == []
         closed = next(item for item in store.get_goal_log() if item["id"] == goal_id)
@@ -163,6 +164,55 @@ class TestSelfModelStore:
         dropped = next(item for item in store.get_goal_log() if item["id"] == drop_id)
         assert dropped["status"] == "dropped"
         assert dropped["resolved_note"] is None
+
+    def test_long_term_progress_survives_replacing_goal_with_same_id(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "self_model.json"
+        store = SelfModelStore(path)
+        long_term = store.set_long_term_goals([{"goal": "Learn Japanese"}])[0]
+
+        assert store.add_goal_progress(long_term["id"], "Reviewed five words")
+        assert store.get_long_term_progress(long_term["id"])[0]["at"]
+        store.set_long_term_goals(
+            [{"id": long_term["id"], "goal": "Become conversational"}]
+        )
+
+        reloaded = SelfModelStore(path)
+        assert reloaded.get_long_term_progress(long_term["id"])[0]["note"] == (
+            "Reviewed five words"
+        )
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert "progress" not in payload["long_term_goals"][0]
+
+    def test_long_term_progress_rejects_unknown_and_retired_goals(
+        self, tmp_path: Path
+    ) -> None:
+        store = SelfModelStore(tmp_path / "self_model.json")
+        long_term = store.set_long_term_goals([{"goal": "Learn Japanese"}])[0]
+
+        assert not store.add_goal_progress("lt_unknown", "Not current")
+        assert store.add_goal_progress(long_term["id"], "First note")
+        store.set_long_term_goals([])
+
+        assert not store.add_goal_progress(long_term["id"], "Retired note")
+        assert store.get_long_term_progress(long_term["id"])[0]["note"] == "First note"
+        assert store.get_long_term_progress("lt_unknown") == []
+
+    def test_long_term_progress_keeps_newest_twenty_per_goal(
+        self, tmp_path: Path
+    ) -> None:
+        store = SelfModelStore(tmp_path / "self_model.json")
+        long_term = store.set_long_term_goals([{"goal": "Learn Japanese"}])[0]
+
+        for index in range(25):
+            assert store.add_goal_progress(long_term["id"], f"Progress {index}")
+
+        progress = store.get_long_term_progress(long_term["id"])
+        assert len(progress) == 20
+        assert [entry["note"] for entry in progress] == [
+            f"Progress {index}" for index in range(5, 25)
+        ]
 
     def test_goal_supersedes_carries_lineage_and_parent(
         self, tmp_path: Path
@@ -249,6 +299,17 @@ class TestSelfModelStore:
                         {"id": "lt_valid", "goal": "A long-term goal"},
                         {"id": 3, "goal": "Bad ID"},
                     ],
+                    "long_term_progress": [
+                        None,
+                        {
+                            "goal_id": "lt_valid",
+                            "at": "2026-10-20T09:00:00+00:00",
+                            "note": "Valid",
+                        },
+                        {"goal_id": "", "at": "now", "note": "Empty ID"},
+                        {"goal_id": "lt_valid", "at": "now", "note": "  "},
+                        {"goal_id": 5, "at": "now", "note": "Bad ID"},
+                    ],
                 }
             ),
             encoding="utf-8",
@@ -260,6 +321,13 @@ class TestSelfModelStore:
         assert goals[0]["progress"] == []
         assert goals[0]["status"] == "active"
         assert [item["id"] for item in store.get_long_term_goals()] == ["lt_valid"]
+        assert store.get_long_term_progress() == [
+            {
+                "goal_id": "lt_valid",
+                "at": "2026-10-20T09:00:00+00:00",
+                "note": "Valid",
+            }
+        ]
 
     def test_corrupt_json_fallback(self, tmp_path: Path) -> None:
         path = tmp_path / "self_model.json"

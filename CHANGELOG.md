@@ -2,6 +2,15 @@
 
 ego-mcp / dashboard のリリース履歴。
 
+## [1.12.0] - 2026-10-20
+
+### Added
+- ego-mcp: long-term goals への progress note を追加 — `goal_progress` が `lt_` ID を受け付け、goal ごとに最新 20 件を保持し、introspect の long-term 行に最新 progress を表示
+
+### Changed
+- ego-mcp: long-term ID への `resolve_goal` / `drop_goal` / `supersedes` は long-term goals が固定である旨を返す
+- バージョンアップ: ego-mcp `1.11.0` → `1.12.0`
+
 ## [1.11.0] - 2026-10-20
 
 ### Added

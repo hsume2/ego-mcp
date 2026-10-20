@@ -64,9 +64,11 @@ class TestUpdateSelfGoals:
             "Practice daily"
         )
 
-        assert "Recorded progress" in _update(
-            config, "goal_progress", {"id": goal_id, "note": "Practiced for 20 minutes"}
-        )
+        assert _update(
+            config,
+            "goal_progress",
+            {"id": goal_id, "note": "Practiced for 20 minutes"},
+        ) == f"Recorded progress for goal {goal_id}."
         empty = _update(config, "goal_progress", {"id": goal_id, "note": "  "})
         assert "non-empty note" in empty
         assert "not found or not active" in _update(
@@ -82,6 +84,37 @@ class TestUpdateSelfGoals:
         )
         assert "Dropped" in _update(config, "drop_goal", drop_id)
         assert "not found or already closed" in _update(config, "drop_goal", drop_id)
+
+    def test_long_term_progress_and_fixed_goal_rejections(
+        self, config: EgoConfig
+    ) -> None:
+        path = config.data_dir / "self_model.json"
+        store = SelfModelStore(path)
+        long_term = store.set_long_term_goals([{"goal": "Build strength"}])[0]
+        fixed_message = (
+            f"Goal {long_term['id']} is a long-term goal. Long-term goals are fixed; "
+            "only the operator changes them."
+        )
+
+        assert _update(
+            config,
+            "goal_progress",
+            {"id": long_term["id"], "note": "Practiced for 20 minutes"},
+        ) == f"Recorded progress for goal {long_term['id']}."
+        for field in ("resolve_goal", "drop_goal"):
+            assert _update(config, field, long_term["id"]) == fixed_message
+            assert SelfModelStore(path).get_long_term_goals() == [long_term]
+
+        assert (
+            _update(
+                config,
+                "new_goal",
+                {"goal": "Replace the fixed goal", "supersedes": long_term["id"]},
+            )
+            == fixed_message
+        )
+        assert store.get_goal_log() == []
+        assert SelfModelStore(path).get_long_term_goals() == [long_term]
 
     def test_new_goal_supersedes_and_inherits_parent(self, config: EgoConfig) -> None:
         store = SelfModelStore(config.data_dir / "self_model.json")

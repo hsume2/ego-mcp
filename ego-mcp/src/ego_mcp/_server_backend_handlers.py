@@ -814,6 +814,13 @@ def _handle_update_self(config: EgoConfig, args: dict[str, Any]) -> str:
             if not isinstance(supersedes_value, str) or not supersedes_value.strip():
                 return "supersedes must be an active short-term goal id."
             supersedes = supersedes_value.strip()
+            if supersedes in {
+                item["id"] for item in store.get_long_term_goals()
+            }:
+                return (
+                    f"Goal {supersedes} is a long-term goal. Long-term goals are "
+                    "fixed; only the operator changes them."
+                )
 
         active = [
             item for item in store.get_goal_log() if item["status"] == "active"
@@ -879,6 +886,11 @@ def _handle_update_self(config: EgoConfig, args: dict[str, Any]) -> str:
             return f"{field_name} expects an id or {{id, note?}}."
         if not goal_id:
             return f"{field_name} expects a non-empty id."
+        if goal_id in {item["id"] for item in store.get_long_term_goals()}:
+            return (
+                f"Goal {goal_id} is a long-term goal. Long-term goals are fixed; "
+                "only the operator changes them."
+            )
         status = "done" if field_name == "resolve_goal" else "dropped"
         if store.close_goal(goal_id, status=status, note=note):
             verb = "Resolved" if status == "done" else "Dropped"

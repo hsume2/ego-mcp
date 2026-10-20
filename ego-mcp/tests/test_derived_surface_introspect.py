@@ -151,6 +151,28 @@ async def test_introspect_reports_no_goals_when_empty(config: EgoConfig) -> None
 
 
 @pytest.mark.asyncio
+async def test_introspect_shows_long_term_goal_progress(config: EgoConfig) -> None:
+    store = SelfModelStore(config.data_dir / "self_model.json")
+    learned = store.set_long_term_goals(
+        [{"goal": "Learn Japanese"}, {"goal": "Build strength"}]
+    )
+    assert store.add_goal_progress(learned[0]["id"], "Reviewed\nfive words")
+
+    result = await run_introspect(config)
+
+    assert (
+        f"- [{learned[0]['id']}] Learn Japanese — last progress just now: "
+        "Reviewed five words"
+    ) in result
+    assert f"- [{learned[1]['id']}] Build strength" in result
+    assert f"- [{learned[1]['id']}] Build strength —" not in result
+    assert (
+        'To add progress: update_self(field="goal_progress", '
+        'value={"id": g_id or lt_id, "note": ...}).'
+    ) in result
+
+
+@pytest.mark.asyncio
 async def test_introspect_reports_recently_closed_goals_without_active_goals(
     config: EgoConfig,
 ) -> None:

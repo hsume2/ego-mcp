@@ -1212,8 +1212,24 @@ async def _handle_introspect(
     if long_term_goals or active_goals:
         goal_lines.append("Goals:")
         long_term_ids = {item["id"] for item in long_term_goals}
+        latest_long_term_progress: dict[str, dict[str, str]] = {}
+        for progress in self_store.get_long_term_progress():
+            latest_long_term_progress[progress["goal_id"]] = progress
         for long_term in long_term_goals:
-            goal_lines.append(f"- [{long_term['id']}] {long_term['goal']}")
+            latest_progress = latest_long_term_progress.get(long_term["id"])
+            if latest_progress is None:
+                goal_lines.append(f"- [{long_term['id']}] {long_term['goal']}")
+            else:
+                goal_lines.append(
+                    "- "
+                    + _format_active_goal_line(
+                        {
+                            **long_term,
+                            "progress": [latest_progress],
+                        },
+                        now,
+                    )
+                )
             for active in active_goals:
                 if active["parent"] == long_term["id"]:
                     goal_lines.append(
@@ -1259,7 +1275,7 @@ async def _handle_introspect(
             'value="<goal>" or {"goal": ..., "parent"?: lt_id, '
             '"supersedes"?: g_id}).',
             'To add progress: update_self(field="goal_progress", '
-            'value={"id": g_id, "note": ...}).',
+            'value={"id": g_id or lt_id, "note": ...}).',
             'To resolve a goal: update_self(field="resolve_goal", '
             'value=g_id or {"id": g_id, "note"?: ...}).',
             'To drop a goal: update_self(field="drop_goal", '

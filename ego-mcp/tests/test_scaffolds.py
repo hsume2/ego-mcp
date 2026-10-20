@@ -42,6 +42,7 @@ _BACKEND_TOOL_NAMES = {
     "update_relationship",
     "link_memories",
     "configure_desires",
+    "configure_goals",
 }
 
 # Imperative verbs that should not start scaffold sentences.

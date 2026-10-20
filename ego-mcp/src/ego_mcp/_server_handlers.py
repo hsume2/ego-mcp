@@ -11,6 +11,7 @@ import ego_mcp._server_surface_attune as _surface_attune_module
 import ego_mcp._server_surface_core as _surface_core_module
 import ego_mcp._server_surface_memory as _surface_memory_module
 from ego_mcp._server_backend_configure_desires import _handle_configure_desires
+from ego_mcp._server_backend_configure_goals import _handle_configure_goals
 from ego_mcp._server_backend_handlers import (
     _handle_consolidate,
     _handle_create_episode,
@@ -127,6 +128,7 @@ __all__ = [
     "_handle_pause",
     "_handle_consolidate",
     "_handle_curate_notions",
+    "_handle_configure_goals",
     "_handle_configure_desires",
     "_handle_forget",
     "_handle_link_memories",

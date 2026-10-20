@@ -69,6 +69,25 @@ def bind_minimal_server_state(
 
 class TestImplicitSatisfactionFromServer:
     @pytest.mark.asyncio
+    async def test_configure_goals_does_not_satisfy_implicit_desires(
+        self,
+        desire: DesireEngine,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _seed_high_desire(desire, "curiosity")
+        last_satisfied = desire._state["curiosity"]["last_satisfied"]
+        monkeypatch.setattr(
+            server_mod,
+            "_handle_configure_goals",
+            lambda _config, _args: "shown",
+        )
+
+        result = await server_mod.call_tool("configure_goals", {"action": "show"})
+
+        assert result[0].text == "shown"
+        assert desire._state["curiosity"]["last_satisfied"] == last_satisfied
+
+    @pytest.mark.asyncio
     async def test_remember_lowers_expression_after_tool_call(
         self,
         desire: DesireEngine,

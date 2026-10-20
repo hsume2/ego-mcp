@@ -149,6 +149,7 @@ EXPECTED_TOOL_NAMES = {
     "update_relationship",
     "update_self",
     "configure_desires",
+    "configure_goals",
     "get_episode",
     "create_episode",
     "curate_notions",
@@ -2592,8 +2593,9 @@ class TestUpdateSelf:
             episodes,
             consolidation,
         )
-        assert "doesn't quite fit" in result
+        assert "derived list" in result
         assert "current_goals" in result
+        assert "new_goal" in result
 
 
 class TestGetEpisode:
@@ -2763,11 +2765,8 @@ class TestToolDefinitionSize:
         tools = await server_mod.list_tools()
         total_text = json.dumps([t.model_dump() for t in tools], ensure_ascii=False)
         total_chars = len(total_text)
-        assert len(tools) == 16
-        # Target: 9,000 chars or less. Current definitions are ~8,530 chars and
-        # reviewed as necessary-and-sufficient; the ceiling leaves room for small
-        # future params while still catching runaway bloat (a ~470-char margin,
-        # not the 32-char tripwire it briefly was).
-        assert total_chars <= 9000, (
-            f"Tool definitions too large: {total_chars} chars (target: ≤9,000)"
+        assert len(tools) == 17
+        # Keep roughly 500 chars of headroom for future tool parameters.
+        assert total_chars <= 10000, (
+            f"Tool definitions too large: {total_chars} chars (target: ≤10,000)"
         )

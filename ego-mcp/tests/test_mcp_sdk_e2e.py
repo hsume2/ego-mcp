@@ -23,6 +23,7 @@ EXPECTED_TOOL_NAMES = {
     "recall",
     "pause",
     "configure_desires",
+    "configure_goals",
     "consolidate",
     "forget",
     "link_memories",

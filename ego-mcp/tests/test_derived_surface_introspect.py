@@ -19,6 +19,7 @@ from ego_mcp.derived import stagnation as stagnation_lens
 from ego_mcp.derived.contract import DerivedFile, DerivedReader, write_lens_file
 from ego_mcp.notion import NotionStore
 from ego_mcp.relationship import RelationshipStore
+from ego_mcp.self_model import SelfModelStore
 from ego_mcp.types import Memory, Notion
 
 NOW = datetime(2026, 9, 17, 9, 0, tzinfo=timezone.utc)
@@ -115,6 +116,53 @@ async def run_introspect(
         cast(Any, _FakeDesire()),
         args,
     )
+
+
+@pytest.mark.asyncio
+async def test_introspect_surfaces_goal_state_and_usage_hints(
+    config: EgoConfig,
+) -> None:
+    store = SelfModelStore(config.data_dir / "self_model.json")
+    parent = store.set_long_term_goals([{"goal": "Learn Japanese"}])[0]
+    active_id = store.add_goal("Practice daily", parent=parent["id"])
+    store.add_goal_progress(active_id, "Reviewed five words")
+    closed_id = store.add_goal("Finish a course")
+    store.close_goal(closed_id, status="done", note="Completed")
+    retired_parent = store.set_long_term_goals([])
+    assert retired_parent == []
+
+    result = await run_introspect(config)
+
+    assert "Goals:" in result
+    assert f"[{active_id}] Practice daily (parent [{parent['id']}] (retired))" in result
+    assert "last progress just now: Reviewed five words" in result
+    assert f"Recently closed: [{closed_id}] Finish a course (done," in result
+    assert 'field="new_goal"' in result
+    assert 'field="goal_progress"' in result
+    assert 'field="resolve_goal"' in result
+    assert 'field="drop_goal"' in result
+    assert "goals=" not in result
+
+
+@pytest.mark.asyncio
+async def test_introspect_reports_no_goals_when_empty(config: EgoConfig) -> None:
+    result = await run_introspect(config)
+    assert "Goals: none set." in result
+
+
+@pytest.mark.asyncio
+async def test_introspect_reports_recently_closed_goals_without_active_goals(
+    config: EgoConfig,
+) -> None:
+    store = SelfModelStore(config.data_dir / "self_model.json")
+    closed_id = store.add_goal("Finish a course")
+    store.close_goal(closed_id, status="done", note="Completed")
+
+    result = await run_introspect(config)
+
+    assert "Goals: none active." in result
+    assert "Goals: none set." not in result
+    assert f"Recently closed: [{closed_id}] Finish a course (done," in result
 
 
 # ---------------------------------------------------------------------------

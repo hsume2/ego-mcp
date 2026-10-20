@@ -376,4 +376,26 @@ BACKEND_TOOLS: list[Tool] = [
             "required": ["action"],
         },
     ),
+    Tool(
+        name="configure_goals",
+        description="Show or set operator-controlled long-term goals.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["show", "set_long_term"]},
+                "goals": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "goal": {"type": "string"},
+                        },
+                        "required": ["goal"],
+                    },
+                },
+            },
+            "required": ["action"],
+        },
+    ),
 ]

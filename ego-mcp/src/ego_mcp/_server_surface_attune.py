@@ -353,6 +353,10 @@ async def _handle_attune(
         interest_items = [item["topic"] for item in interests[:3]]
         sections.append("Current interests: " + ", ".join(interest_items))
 
+    active_goal_texts = self_store.get().current_goals[:3]
+    if active_goal_texts:
+        sections.append("Working toward: " + "; ".join(active_goal_texts))
+
     if body_text:
         sections.append(f"Body sense: {body_text}")
     if absence_line:

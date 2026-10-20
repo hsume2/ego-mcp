@@ -49,7 +49,11 @@ from ego_mcp.scaffolds import (
     SCAFFOLD_CURATE_NOTIONS,
     compose_response,
 )
-from ego_mcp.self_model import SelfModelStore, _clamp_question_importance
+from ego_mcp.self_model import (
+    MAX_ACTIVE_SHORT_TERM_GOALS,
+    SelfModelStore,
+    _clamp_question_importance,
+)
 from ego_mcp.types import Memory, MetaField
 
 logger = logging.getLogger(__name__)
@@ -678,10 +682,28 @@ def _handle_update_relationship(config: EgoConfig, args: dict[str, Any]) -> str:
 
 _SELF_FIELD_ALIASES: dict[str, str] = {
     "confidence": "confidence_calibration",
-    "goals": "current_goals",
     "values": "discovered_values",
     "narratives": "identity_narratives",
 }
+
+_SELF_REFLECTABLE_FIELDS = sorted(
+    {
+        "preferences",
+        "discovered_values",
+        "skill_confidence",
+        "identity_narratives",
+        "growth_log",
+        "confidence_calibration",
+        "unresolved_questions",
+        "new_question",
+        "resolve_question",
+        "question_importance",
+        "new_goal",
+        "goal_progress",
+        "resolve_goal",
+        "drop_goal",
+    }
+)
 
 
 def _coerce_json_string(value: Any) -> Any:
@@ -746,9 +768,122 @@ def _update_unresolved_questions_from_list(
 
 def _handle_update_self(config: EgoConfig, args: dict[str, Any]) -> str:
     """Update self model."""
-    field_name = _SELF_FIELD_ALIASES.get(args["field"], args["field"])
+    original_field = str(args["field"])
+    field_name = _SELF_FIELD_ALIASES.get(original_field, original_field)
     value = args["value"]
+    if field_name == "long_term_goals":
+        return (
+            "Long-term goals are fixed; they are set by the operator. "
+            "To hold a short-term goal of your own, use new_goal "
+            "(optionally with parent: <long-term id>)."
+        )
+    if field_name in ("current_goals", "goals"):
+        return (
+            "current_goals/goals is a derived list; use new_goal, "
+            "resolve_goal, or drop_goal."
+        )
     store = SelfModelStore(config.data_dir / "self_model.json")
+
+    if field_name == "new_goal":
+        value = _coerce_json_string(value)
+        if isinstance(value, str) and value.strip():
+            value = {"goal": value}
+        goal_value = value.get("goal") if isinstance(value, dict) else None
+        if not isinstance(goal_value, str) or not goal_value.strip():
+            return 'new_goal expects {"goal": str, "parent"?: lt_id, "supersedes"?: g_id}.'
+        goal = goal_value.strip()
+        parent_value = value.get("parent")
+        parent: str | None = None
+        if parent_value is not None:
+            if not isinstance(parent_value, str) or not parent_value.strip():
+                valid_ids_text = ", ".join(
+                    item["id"] for item in store.get_long_term_goals()
+                ) or "none"
+                return f"Invalid parent. Valid long-term ids: {valid_ids_text}."
+            parent = parent_value.strip()
+            valid_id_set = {item["id"] for item in store.get_long_term_goals()}
+            if parent not in valid_id_set:
+                return (
+                    f"Invalid parent {parent}. Valid long-term ids: "
+                    f"{', '.join(sorted(valid_id_set)) or 'none'}."
+                )
+
+        supersedes_value = value.get("supersedes")
+        supersedes: str | None = None
+        if supersedes_value is not None:
+            if not isinstance(supersedes_value, str) or not supersedes_value.strip():
+                return "supersedes must be an active short-term goal id."
+            supersedes = supersedes_value.strip()
+
+        active = [
+            item for item in store.get_goal_log() if item["status"] == "active"
+        ]
+        if len(active) >= MAX_ACTIVE_SHORT_TERM_GOALS and supersedes is None:
+            active_lines = "; ".join(
+                f"[{item['id']}] {item['goal']}" for item in active
+            )
+            return (
+                f"Already holding {MAX_ACTIVE_SHORT_TERM_GOALS} active short-term "
+                f"goals: {active_lines}. Use resolve_goal, drop_goal, or supersedes."
+            )
+        try:
+            goal_id = store.add_goal(goal, parent=parent, supersedes=supersedes)
+        except ValueError as exc:
+            return str(exc)
+        response = f"Holding short-term goal {goal_id}"
+        new_entry = next(
+            item for item in store.get_goal_log() if item["id"] == goal_id
+        )
+        actual_parent = new_entry["parent"]
+        if actual_parent is not None:
+            parent_entry = next(
+                (
+                    item
+                    for item in store.get_long_term_goals()
+                    if item["id"] == actual_parent
+                ),
+                None,
+            )
+            parent_label = parent_entry["goal"] if parent_entry else "(retired)"
+            response += f" toward {actual_parent} ({parent_label})"
+        if supersedes is not None:
+            response += f"; supersedes {supersedes}"
+        return response + "."
+
+    if field_name == "goal_progress":
+        value = _coerce_json_string(value)
+        if not isinstance(value, dict):
+            return "goal_progress expects {id, note}."
+        goal_id = str(value.get("id", "")).strip()
+        note = value.get("note")
+        if not goal_id:
+            return "goal_progress expects a non-empty id."
+        if not isinstance(note, str) or not note.strip():
+            return "goal_progress expects a non-empty note."
+        if store.add_goal_progress(goal_id, note):
+            return f"Recorded progress for goal {goal_id}."
+        return f"Goal {goal_id} not found or not active."
+
+    if field_name in ("resolve_goal", "drop_goal"):
+        value = _coerce_json_string(value)
+        if isinstance(value, str):
+            goal_id = value.strip()
+            note = None
+        elif isinstance(value, dict):
+            goal_id = str(value.get("id", "")).strip()
+            note_value = value.get("note")
+            if note_value is not None and not isinstance(note_value, str):
+                return f"{field_name} note must be text."
+            note = note_value
+        else:
+            return f"{field_name} expects an id or {{id, note?}}."
+        if not goal_id:
+            return f"{field_name} expects a non-empty id."
+        status = "done" if field_name == "resolve_goal" else "dropped"
+        if store.close_goal(goal_id, status=status, note=note):
+            verb = "Resolved" if status == "done" else "Dropped"
+            return f"{verb} goal {goal_id}."
+        return f"Goal {goal_id} not found or already closed."
 
     if field_name == "new_question":
         value = _coerce_json_string(value)
@@ -838,7 +973,7 @@ def _handle_update_self(config: EgoConfig, args: dict[str, Any]) -> str:
         if "Invalid" in msg and "field" in msg:
             return (
                 f"I don't have a sense of '{field_name}' in my self-model. "
-                f"What I can reflect on: {', '.join(sorted(_SELF_FIELD_ALIASES.values()))}."
+                f"What I can reflect on: {', '.join(_SELF_REFLECTABLE_FIELDS)}."
             )
         return msg
     except TypeError:

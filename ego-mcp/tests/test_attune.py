@@ -21,6 +21,7 @@ from ego_mcp._server_surface_attune import (
 from ego_mcp.config import EgoConfig
 from ego_mcp.desire import DesireEngine
 from ego_mcp.relationship import RelationshipStore
+from ego_mcp.self_model import SelfModelStore
 from ego_mcp.types import Category, Emotion, EmotionalTrace, Memory
 
 
@@ -105,6 +106,26 @@ class TestHandleAttune:
     ) -> None:
         result = await _handle_attune(config, memory, {}, engine)
         assert "Recent (past 3 days):" in result
+
+    @pytest.mark.asyncio
+    async def test_working_toward_includes_up_to_three_active_goals(
+        self, config: EgoConfig, memory: AsyncMock, engine: DesireEngine
+    ) -> None:
+        store = SelfModelStore(config.data_dir / "self_model.json")
+        for index in range(4):
+            store.add_goal(f"Goal {index}")
+
+        result = await _handle_attune(config, memory, {}, engine)
+
+        assert "Working toward: Goal 0; Goal 1; Goal 2" in result
+        assert "Goal 3" not in result
+
+    @pytest.mark.asyncio
+    async def test_working_toward_is_omitted_without_active_goals(
+        self, config: EgoConfig, memory: AsyncMock, engine: DesireEngine
+    ) -> None:
+        result = await _handle_attune(config, memory, {}, engine)
+        assert "Working toward:" not in result
 
     @pytest.mark.asyncio
     async def test_approaching_anticipation_shown_after_texture_when_rng_allows(

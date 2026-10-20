@@ -79,6 +79,7 @@ _infer_topics_from_memories = _handlers._infer_topics_from_memories
 _relationship_snapshot = _handlers._relationship_snapshot
 _derive_desire_modulation = _handlers._derive_desire_modulation
 _handle_configure_desires_impl = _handlers._handle_configure_desires
+_handle_configure_goals_impl = _handlers._handle_configure_goals
 
 
 def _sync_handler_overrides() -> None:
@@ -228,6 +229,11 @@ def _handle_configure_desires(config: EgoConfig, args: dict[str, Any]) -> str:
     from ego_mcp.desire_catalog import desire_catalog_settings_path
     catalog_path = desire_catalog_settings_path(config.data_dir)
     return _handle_configure_desires_impl(str(catalog_path), args)
+
+
+def _handle_configure_goals(config: EgoConfig, args: dict[str, Any]) -> str:
+    path = config.data_dir / "self_model.json"
+    return _handle_configure_goals_impl(str(path), args)
 
 
 async def _handle_get_episode(
@@ -520,6 +526,8 @@ async def _dispatch(
         return result
     elif name == "configure_desires":
         return _handle_configure_desires(config, args)
+    elif name == "configure_goals":
+        return _handle_configure_goals(config, args)
     elif name == "get_episode":
         return await _handle_get_episode(episodes, memory, args)
     elif name == "create_episode":

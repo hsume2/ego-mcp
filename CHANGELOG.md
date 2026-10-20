@@ -2,6 +2,14 @@
 
 ego-mcp / dashboard のリリース履歴。
 
+## [1.11.0] - 2026-10-20
+
+### Added
+- ego-mcp: 自己モデルに operator-set の固定 long-term goals と companion が管理する short-term goal log を追加 — `update_self` の `new_goal` / `goal_progress` / `resolve_goal` / `drop_goal`、上限 5 件、supersedes lineage、legacy `current_goals` rescue、operator 用 `configure_goals`、introspect / attune への事実ベース表示。short-term goals は `self_model.json` の additive keys として保存し、migration は不要
+
+### Changed
+- バージョンアップ: ego-mcp `1.10.0` → `1.11.0`
+
 ## [1.9.0] - 2026-09-17
 
 ### Added

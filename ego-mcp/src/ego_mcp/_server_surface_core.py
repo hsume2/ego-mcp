@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import random
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from inspect import isawaitable
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -24,6 +24,7 @@ from ego_mcp._server_emotion_formatting import (
     _format_month_emotion_layer,
     _format_recent_emotion_layer,
     _format_week_emotion_layer,
+    _relative_time,
     _tail_quote_for_introspection,
     _truncate_for_quote,
 )
@@ -1172,8 +1173,6 @@ async def _handle_introspect(
     try:
         episode_store = get_episodes()
         all_episodes = await episode_store.list_episodes(limit=10)
-        from datetime import timedelta
-
         cutoff = now - timedelta(days=14)
         recent_episodes = [
             ep for ep in all_episodes
@@ -1192,14 +1191,80 @@ async def _handle_introspect(
 
     # §10.1 self model delta
     self_model = self_store.get()
-    goals = (
-        ", ".join(self_model.current_goals[:2]) if self_model.current_goals else "none"
-    )
     self_summary = (
-        f"Self model: confidence={self_model.confidence_calibration:.2f}, goals={goals}"
+        f"Self model: confidence={self_model.confidence_calibration:.2f}"
     )
     if self_model.last_updated:
         self_summary += f", last_updated={self_model.last_updated[:10]}"
+
+    long_term_goals = self_store.get_long_term_goals()
+    goal_log = self_store.get_goal_log()
+    active_goals = [item for item in goal_log if item["status"] == "active"]
+    recent_closed_goals = []
+    for item in goal_log:
+        if item["status"] not in ("done", "dropped") or not item["resolved_at"]:
+            continue
+        closed_at = _parse_episode_time(str(item["resolved_at"]))
+        if closed_at is not None and closed_at >= now - timedelta(days=7):
+            recent_closed_goals.append(item)
+
+    goal_lines: list[str] = []
+    if long_term_goals or active_goals:
+        goal_lines.append("Goals:")
+        long_term_ids = {item["id"] for item in long_term_goals}
+        for long_term in long_term_goals:
+            goal_lines.append(f"- [{long_term['id']}] {long_term['goal']}")
+            for active in active_goals:
+                if active["parent"] == long_term["id"]:
+                    goal_lines.append(
+                        _format_active_goal_line(active, now, indent="  ")
+                    )
+
+        retired_children = [
+            item
+            for item in active_goals
+            if item["parent"] is not None and item["parent"] not in long_term_ids
+        ]
+        if retired_children:
+            goal_lines.append("Retired parent goals:")
+            for active in retired_children:
+                goal_lines.append(
+                    _format_active_goal_line(
+                        active,
+                        now,
+                        indent="  ",
+                        parent_note=f" (parent [{active['parent']}] (retired))",
+                    )
+                )
+
+        parentless_goals = [item for item in active_goals if item["parent"] is None]
+        if parentless_goals:
+            goal_lines.append("Parentless short-term goals:")
+            for active in parentless_goals:
+                goal_lines.append(_format_active_goal_line(active, now, indent="  "))
+    else:
+        goal_lines.append("Goals: none set.")
+
+    for closed in recent_closed_goals:
+        goal_lines.append(
+            f"Recently closed: [{closed['id']}] {closed['goal']} "
+            f"({closed['status']}, {_relative_time(str(closed['resolved_at']), now)})"
+        )
+
+    goal_lines.extend(
+        [
+            'To hold a short-term goal: update_self(field="new_goal", '
+            'value="<goal>" or {"goal": ..., "parent"?: lt_id, '
+            '"supersedes"?: g_id}).',
+            'To add progress: update_self(field="goal_progress", '
+            'value={"id": g_id, "note": ...}).',
+            'To resolve a goal: update_self(field="resolve_goal", '
+            'value=g_id or {"id": g_id, "note"?: ...}).',
+            'To drop a goal: update_self(field="drop_goal", '
+            'value=g_id or {"id": g_id, "note"?: ...}).',
+        ]
+    )
+    goals_section = "\n".join(goal_lines)
 
     # §10.1 desire trend — EMA-based change for 1-2 desires
     desire_trend_lines: list[str] = []
@@ -1233,6 +1298,7 @@ async def _handle_introspect(
         "\n".join(episode_lines) if episode_lines else "",
         "\n".join(chapter_lines) if chapter_lines else "",
         self_summary,
+        goals_section,
         "\n".join(desire_trend_lines) if desire_trend_lines else "",
         f"\nDesire currents: {desire_summary}",
         relationship_summary,
@@ -1259,6 +1325,26 @@ async def _handle_introspect(
     if bridge_line:
         scaffold = f"{scaffold}\n{bridge_line}"
     return render_with_data(data, scaffold, config.companion_name)
+
+
+def _format_active_goal_line(
+    goal: dict[str, Any],
+    now: datetime,
+    *,
+    indent: str = "",
+    parent_note: str = "",
+) -> str:
+    """Format an active short-term goal with its latest progress or held age."""
+    progress = goal.get("progress", [])
+    if isinstance(progress, list) and progress:
+        latest = progress[-1]
+        note = str(latest.get("note", "")).replace("\n", " ").strip()
+        age = _relative_time(str(latest.get("at", "")), now)
+        detail = f"last progress {age}: {note}"
+    else:
+        age = _relative_time(str(goal.get("created_at", "")), now)
+        detail = f"no progress yet, held {age.removesuffix(' ago')}"
+    return f"{indent}[{goal['id']}] {goal['goal']}{parent_note} — {detail}"
 
 
 def _parse_episode_time(timestamp: str) -> datetime | None:

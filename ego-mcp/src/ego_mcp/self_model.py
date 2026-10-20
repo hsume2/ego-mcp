@@ -1,4 +1,4 @@
-"""Self model persistence and question management."""
+"""Self model persistence and question and goal management."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
 
 QUESTION_ACTIVE_MIN_SALIENCE = 0.3
 QUESTION_DORMANT_MAX_SALIENCE = 0.1
+MAX_ACTIVE_SHORT_TERM_GOALS = 5
 
 
 def _clamp_question_importance(value: Any) -> int:
@@ -116,6 +117,121 @@ def normalize_question_log(raw: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def normalize_long_term_goals(raw: Any) -> list[dict[str, str]]:
+    """Normalize a raw long-term goal list, skipping malformed entries."""
+    if not isinstance(raw, list):
+        return []
+
+    normalized: list[dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        goal_id = item.get("id")
+        goal = item.get("goal")
+        created_at = item.get("created_at", "")
+        if (
+            not isinstance(goal_id, str)
+            or not goal_id
+            or not isinstance(goal, str)
+            or not goal.strip()
+        ):
+            continue
+        normalized.append(
+            {
+                "id": goal_id,
+                "goal": goal,
+                "created_at": created_at if isinstance(created_at, str) else "",
+            }
+        )
+    return normalized
+
+
+def normalize_goal_log(raw: Any) -> list[dict[str, Any]]:
+    """Normalize a raw ``goal_log`` payload, skipping malformed entries."""
+    if not isinstance(raw, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        goal = item.get("goal")
+        goal_id = item.get("id")
+        if (
+            not isinstance(goal, str)
+            or not goal.strip()
+            or not isinstance(goal_id, str)
+            or not goal_id
+        ):
+            continue
+        status = item.get("status")
+        if status not in ("active", "done", "dropped"):
+            status = "active"
+        parent = item.get("parent")
+        resolved_at = item.get("resolved_at")
+        resolved_note = item.get("resolved_note")
+        lineage = item.get("lineage", [])
+        progress = item.get("progress", [])
+        normalized.append(
+            {
+                **item,
+                "id": goal_id,
+                "goal": goal,
+                "parent": parent if isinstance(parent, str) and parent else None,
+                "status": status,
+                "created_at": (
+                    item.get("created_at")
+                    if isinstance(item.get("created_at"), str)
+                    else ""
+                ),
+                "resolved_at": resolved_at if isinstance(resolved_at, str) else None,
+                "resolved_note": (
+                    resolved_note if isinstance(resolved_note, str) else None
+                ),
+                "lineage": (
+                    [str(goal_id) for goal_id in lineage if isinstance(goal_id, str)]
+                    if isinstance(lineage, list)
+                    else []
+                ),
+                "progress": (
+                    [
+                        {
+                            "at": entry.get("at", "")
+                            if isinstance(entry.get("at"), str)
+                            else "",
+                            "note": entry["note"],
+                        }
+                        for entry in progress
+                        if isinstance(entry, dict)
+                        and isinstance(entry.get("note"), str)
+                    ]
+                    if isinstance(progress, list)
+                    else []
+                ),
+            }
+        )
+    return normalized
+
+
+def _new_goal_entry(
+    goal: str,
+    *,
+    parent: str | None,
+    lineage: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": f"g_{uuid.uuid4().hex[:10]}",
+        "goal": goal,
+        "parent": parent,
+        "status": "active",
+        "created_at": timezone_utils.now().isoformat(),
+        "resolved_at": None,
+        "resolved_note": None,
+        "lineage": list(lineage or []),
+        "progress": [],
+    }
+
+
 def _calculate_salience(importance: int, age_days: float) -> float:
     """Decay question salience based on importance and age."""
     clamped_importance = _clamp_question_importance(importance)
@@ -139,6 +255,8 @@ class SelfModelStore:
         data = asdict(model)
         data["unresolved_questions"] = []
         data["question_log"] = []
+        data["long_term_goals"] = []
+        data["goal_log"] = []
         data["last_updated"] = timezone_utils.now().isoformat()
         return data
 
@@ -153,6 +271,7 @@ class SelfModelStore:
             else:
                 self._data = {**self._default_data(), **parsed}
                 self._rescue_orphan_unresolved_questions()
+                self._normalize_goal_data()
         except (json.JSONDecodeError, OSError):
             self._data = self._default_data()
 
@@ -212,6 +331,42 @@ class SelfModelStore:
             self._data["last_updated"] = timezone_utils.now().isoformat()
             self._save()
 
+    def _normalize_goal_data(self) -> None:
+        changed = False
+        raw_log = self._data.get("goal_log", [])
+        goal_log = normalize_goal_log(raw_log)
+        if goal_log != raw_log:
+            changed = True
+
+        raw_long_term = self._data.get("long_term_goals", [])
+        long_term = normalize_long_term_goals(raw_long_term)
+        if long_term != raw_long_term:
+            changed = True
+
+        legacy_goals = self._data.get("current_goals", [])
+        if isinstance(legacy_goals, list):
+            known_texts = {entry["goal"] for entry in goal_log}
+            for value in legacy_goals:
+                if not isinstance(value, str) or not value.strip():
+                    continue
+                goal = value.strip()
+                if goal in known_texts:
+                    continue
+                goal_log.append(_new_goal_entry(goal, parent=None))
+                known_texts.add(goal)
+                changed = True
+        elif legacy_goals:
+            changed = True
+
+        self._data["goal_log"] = goal_log
+        self._data["long_term_goals"] = long_term
+        if self._data.get("current_goals") != []:
+            self._data["current_goals"] = []
+            changed = True
+        if changed:
+            self._data["last_updated"] = timezone_utils.now().isoformat()
+            self._save()
+
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(
@@ -243,7 +398,11 @@ class SelfModelStore:
             preferences=dict(self._data.get("preferences", {})),
             discovered_values=dict(self._data.get("discovered_values", {})),
             skill_confidence=dict(self._data.get("skill_confidence", {})),
-            current_goals=list(self._data.get("current_goals", [])),
+            current_goals=[
+                entry["goal"]
+                for entry in self.get_goal_log()
+                if entry["status"] == "active"
+            ],
             unresolved_questions=unresolved_texts,
             identity_narratives=list(self._data.get("identity_narratives", [])),
             growth_log=list(self._data.get("growth_log", [])),
@@ -276,6 +435,130 @@ class SelfModelStore:
     def get_question_log(self) -> list[dict[str, Any]]:
         """Return normalized question log entries with backward-compatible defaults."""
         return normalize_question_log(self._data.get("question_log", []))
+
+    def get_long_term_goals(self) -> list[dict[str, str]]:
+        """Return normalized operator-set long-term goals."""
+        return normalize_long_term_goals(self._data.get("long_term_goals", []))
+
+    def set_long_term_goals(self, goals: list[dict[str, Any]]) -> list[dict[str, str]]:
+        """Replace all long-term goals, preserving only existing supplied IDs."""
+        existing = {item["id"]: item for item in self.get_long_term_goals()}
+        replaced: list[dict[str, str]] = []
+        for item in goals:
+            if not isinstance(item, dict):
+                raise ValueError("Each long-term goal must be an object with a goal.")
+            goal = item.get("goal")
+            if not isinstance(goal, str) or not goal.strip():
+                raise ValueError("Each long-term goal must have non-empty goal text.")
+            supplied_id = item.get("id")
+            if supplied_id is not None:
+                if not isinstance(supplied_id, str) or supplied_id not in existing:
+                    raise ValueError(f"Unknown long-term goal id: {supplied_id}")
+                goal_id = supplied_id
+                created_at = existing[supplied_id]["created_at"]
+            else:
+                goal_id = f"lt_{uuid.uuid4().hex[:10]}"
+                created_at = timezone_utils.now().isoformat()
+            replaced.append(
+                {"id": goal_id, "goal": goal.strip(), "created_at": created_at}
+            )
+        self._data["long_term_goals"] = replaced
+        self._data["last_updated"] = timezone_utils.now().isoformat()
+        self._save()
+        return self.get_long_term_goals()
+
+    def get_goal_log(self) -> list[dict[str, Any]]:
+        """Return normalized short-term goal entries."""
+        return normalize_goal_log(self._data.get("goal_log", []))
+
+    def add_goal(
+        self,
+        goal: str,
+        *,
+        parent: str | None = None,
+        supersedes: str | None = None,
+    ) -> str:
+        """Add an active short-term goal, optionally superseding another."""
+        if not isinstance(goal, str) or not goal.strip():
+            raise ValueError("Goal text must be non-empty.")
+        log = self.get_goal_log()
+        old_goal = None
+        if supersedes is not None:
+            old_goal = next(
+                (
+                    entry
+                    for entry in log
+                    if entry["id"] == supersedes and entry["status"] == "active"
+                ),
+                None,
+            )
+            if old_goal is None:
+                raise ValueError(f"Goal {supersedes} not found or already closed.")
+        if parent is not None and parent not in {
+            entry["id"] for entry in self.get_long_term_goals()
+        }:
+            raise ValueError(f"Unknown long-term goal id: {parent}")
+        if parent is None and old_goal is not None:
+            parent = old_goal["parent"]
+        active_count = sum(entry["status"] == "active" for entry in log)
+        if active_count >= MAX_ACTIVE_SHORT_TERM_GOALS and old_goal is None:
+            raise ValueError("Maximum active short-term goals reached.")
+
+        new_entry = _new_goal_entry(
+            goal,
+            parent=parent,
+            lineage=(
+                list(old_goal["lineage"]) + [str(old_goal["id"])]
+                if old_goal is not None
+                else []
+            ),
+        )
+        if old_goal is not None:
+            for entry in log:
+                if entry["id"] == old_goal["id"]:
+                    entry["status"] = "dropped"
+                    entry["resolved_at"] = new_entry["created_at"]
+                    entry["resolved_note"] = f"superseded by {new_entry['id']}"
+                    break
+        log.append(new_entry)
+        self._data["goal_log"] = log
+        self._data["last_updated"] = timezone_utils.now().isoformat()
+        self._save()
+        return str(new_entry["id"])
+
+    def add_goal_progress(self, goal_id: str, note: str) -> bool:
+        """Append a progress note to an active short-term goal."""
+        if not note.strip():
+            return False
+        log = self.get_goal_log()
+        for entry in log:
+            if entry["id"] == goal_id and entry["status"] == "active":
+                entry["progress"].append(
+                    {"at": timezone_utils.now().isoformat(), "note": note.strip()}
+                )
+                self._data["goal_log"] = log
+                self._data["last_updated"] = timezone_utils.now().isoformat()
+                self._save()
+                return True
+        return False
+
+    def close_goal(
+        self, goal_id: str, *, status: str, note: str | None = None
+    ) -> bool:
+        """Mark an active short-term goal done or dropped."""
+        if status not in ("done", "dropped"):
+            raise ValueError("Goal status must be 'done' or 'dropped'.")
+        log = self.get_goal_log()
+        for entry in log:
+            if entry["id"] == goal_id and entry["status"] == "active":
+                entry["status"] = status
+                entry["resolved_at"] = timezone_utils.now().isoformat()
+                entry["resolved_note"] = note.strip() if note and note.strip() else None
+                self._data["goal_log"] = log
+                self._data["last_updated"] = timezone_utils.now().isoformat()
+                self._save()
+                return True
+        return False
 
     def add_question(
         self,

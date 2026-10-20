@@ -136,7 +136,8 @@ class TestUpdateSelfGoals:
         assert (
             result
             == "Long-term goals are fixed; they are set by the operator. "
-            "Short-term goals: new_goal …"
+            "To hold a short-term goal of your own, use new_goal "
+            "(optionally with parent: <long-term id>)."
         )
 
     @pytest.mark.parametrize("field", ["current_goals", "goals"])

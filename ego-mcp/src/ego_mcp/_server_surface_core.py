@@ -1243,7 +1243,9 @@ async def _handle_introspect(
             for active in parentless_goals:
                 goal_lines.append(_format_active_goal_line(active, now, indent="  "))
     else:
-        goal_lines.append("Goals: none set.")
+        goal_lines.append(
+            "Goals: none active." if recent_closed_goals else "Goals: none set."
+        )
 
     for closed in recent_closed_goals:
         goal_lines.append(

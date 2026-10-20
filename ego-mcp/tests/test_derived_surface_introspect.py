@@ -150,6 +150,21 @@ async def test_introspect_reports_no_goals_when_empty(config: EgoConfig) -> None
     assert "Goals: none set." in result
 
 
+@pytest.mark.asyncio
+async def test_introspect_reports_recently_closed_goals_without_active_goals(
+    config: EgoConfig,
+) -> None:
+    store = SelfModelStore(config.data_dir / "self_model.json")
+    closed_id = store.add_goal("Finish a course")
+    store.close_goal(closed_id, status="done", note="Completed")
+
+    result = await run_introspect(config)
+
+    assert "Goals: none active." in result
+    assert "Goals: none set." not in result
+    assert f"Recently closed: [{closed_id}] Finish a course (done," in result
+
+
 # ---------------------------------------------------------------------------
 # D3 S2 — Unconnected density (focus=network)
 # ---------------------------------------------------------------------------

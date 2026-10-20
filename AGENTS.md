@@ -54,6 +54,7 @@ uv run python -m ego_mcp
 - Desire configuration: `configure_desires` (check/show/set_sentence/set_signals)
 - Graph exploration: `recall` (mode=explore, seed=...) for a local neighborhood, `introspect` (focus=network) for notion graph topology
 - Open questions: hold with `update_self` (field=new_question, optional supersedes/with) -> resolve with `update_self` (field=resolve_question). wake_up surfaces one open edge; consolidate lets resting questions ripen
+- Goals: long-term goals are operator-set with `configure_goals` (show/set_long_term); short-term goals are the companion's own via `update_self` (field=new_goal with optional parent/supersedes -> goal_progress -> resolve_goal / drop_goal). introspect shows the goal tree; attune shows active short-term goals
 - Future events: `remember` with `anticipated_at` — wake_up / attune surface them as they approach
 
 ## dashboard

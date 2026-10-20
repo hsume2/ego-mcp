@@ -774,7 +774,8 @@ def _handle_update_self(config: EgoConfig, args: dict[str, Any]) -> str:
     if field_name == "long_term_goals":
         return (
             "Long-term goals are fixed; they are set by the operator. "
-            "Short-term goals: new_goal …"
+            "To hold a short-term goal of your own, use new_goal "
+            "(optionally with parent: <long-term id>)."
         )
     if field_name in ("current_goals", "goals"):
         return (

@@ -23,7 +23,9 @@ name: ego-mcp-${EGO_MCP_INSTANCE:-default}
 services:
   ego-mcp:
     build: .
-    image: ego-mcp:local
+    # A deployer can pin a commit-tagged image per instance by passing a second
+    # env file that sets EGO_MCP_IMAGE; a plain `up -d --build` uses ego-mcp:local.
+    image: ${EGO_MCP_IMAGE:-ego-mcp:local}
     container_name: ego-mcp-${EGO_MCP_INSTANCE:-default}
     restart: unless-stopped
     user: "${EGO_MCP_UID:-1000}:${EGO_MCP_GID:-1000}"
